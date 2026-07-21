@@ -1,0 +1,49 @@
+name: Repair did not work
+description: Report a reproducible WU-BT10 endpoint or restoration problem.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not upload logs before checking them for information you consider private.
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and build
+      placeholder: Windows 11 25H2, build 26200.x
+    validations:
+      required: true
+  - type: input
+    id: instrument
+    attributes:
+      label: Casio instrument model
+      placeholder: PX-S1100
+    validations:
+      required: true
+  - type: dropdown
+    id: state
+    attributes:
+      label: Result shown by the app
+      options:
+        - Pair WU-BT10 AUDIO first
+        - Repair is installed; WU-BT10 is disconnected
+        - WU-BT10 is paired but its audio output is missing
+        - A different audio driver was detected
+        - Repair failed
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps and observed behavior
+      description: Include what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant repair log excerpt
+      description: The log is at %LOCALAPPDATA%\WU-BT10-Fix\repair.log.
+      render: text

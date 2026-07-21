@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <AssemblyName>WU-BT10-Windows-Fix</AssemblyName>
+    <RootNamespace>WUBT10Fix</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
+    <Version>1.4.1</Version>
+    <Authors>WU-BT10 Windows Fix contributors</Authors>
+    <Company>WU-BT10 Windows Fix contributors</Company>
+    <Product>WU-BT10 Windows Fix</Product>
+    <Description>Repairs WU-BT10 Bluetooth audio and bridges low-latency BLE MIDI on Windows.</Description>
+    <Copyright>Copyright © 2026 WU-BT10 Windows Fix contributors</Copyright>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>embedded</DebugType>
+    <SupportUrl Condition="'$(SupportUrl)' == ''"></SupportUrl>
+    <RepositoryUrl Condition="'$(RepositoryUrl)' == ''">https://github.com/OWNER/WU-BT10-Windows-Audio-Fix</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\app-icon.png" LogicalName="WUBT10Fix.app-icon.png" />
+    <AssemblyMetadata Include="SupportUrl" Value="$(SupportUrl)" />
+    <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" />
+  </ItemGroup>
+</Project>

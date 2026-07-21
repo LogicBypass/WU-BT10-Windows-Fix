@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+.vscode/
+TestResults/
+artifacts/
+publish/
+*.user
+*.suo
+*.pfx
+*.snk
+*.cer
+*.log
+*.zip

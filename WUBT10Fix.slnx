@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/WUBT10Fix/WUBT10Fix.csproj" />
+  <Project Path="tests/WUBT10Fix.Tests/WUBT10Fix.Tests.csproj" />
+</Solution>

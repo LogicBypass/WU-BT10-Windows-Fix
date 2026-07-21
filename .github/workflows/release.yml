@@ -1,0 +1,137 @@
+name: Signed release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v1.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-sign-package:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    environment: release-signing
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [win-x64, win-arm64]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+          cache: true
+          cache-dependency-path: "**/*.csproj"
+
+      - name: Restore
+        run: dotnet restore src/WUBT10Fix/WUBT10Fix.csproj -r ${{ matrix.runtime }}
+
+      - name: Test
+        run: dotnet test WUBT10Fix.slnx -c Release
+
+      - name: Publish self-contained executable
+        shell: pwsh
+        run: |
+          dotnet publish src/WUBT10Fix/WUBT10Fix.csproj `
+            -c Release `
+            -r ${{ matrix.runtime }} `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:SupportUrl="${{ vars.SUPPORT_URL }}" `
+            -p:RepositoryUrl="${{ github.server_url }}/${{ github.repository }}" `
+            -o "artifacts/${{ matrix.runtime }}"
+          Rename-Item `
+            "artifacts/${{ matrix.runtime }}/WU-BT10-Windows-Fix.exe" `
+            "WU-BT10-Windows-Fix-${{ matrix.runtime }}.exe"
+
+      - name: Sign in to Azure with OIDC
+        if: vars.ARTIFACT_SIGNING_ENABLED == 'true'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Authenticode sign and timestamp
+        if: vars.ARTIFACT_SIGNING_ENABLED == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\artifacts\${{ matrix.runtime }}
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: WU-BT10 Windows Fix
+          description-url: ${{ github.server_url }}/${{ github.repository }}
+
+      - name: Verify production signature
+        if: vars.ARTIFACT_SIGNING_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $file = Get-Item "artifacts/${{ matrix.runtime }}/*.exe"
+          $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+          $signature | Format-List Status,StatusMessage,SignerCertificate,TimeStamperCertificate
+          if ($signature.Status -ne 'Valid') {
+            throw "Authenticode verification failed: $($signature.StatusMessage)"
+          }
+
+      - name: Package artifact
+        shell: pwsh
+        run: |
+          Copy-Item README.md,LICENSE "artifacts/${{ matrix.runtime }}"
+          Compress-Archive `
+            -Path "artifacts/${{ matrix.runtime }}/*" `
+            -DestinationPath "WU-BT10-Windows-Fix-${{ matrix.runtime }}.zip"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WU-BT10-Windows-Fix-${{ matrix.runtime }}
+          path: WU-BT10-Windows-Fix-${{ matrix.runtime }}.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release:
+    needs: build-sign-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: WU-BT10-Windows-Fix-*
+          merge-multiple: true
+          path: release
+
+      - name: Create SHA-256 checksums
+        working-directory: release
+        run: sha256sum *.zip > SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release/* \
+            --repo "${{ github.repository }}" \
+            --verify-tag \
+            --generate-notes \
+            --title "$RELEASE_TAG"
