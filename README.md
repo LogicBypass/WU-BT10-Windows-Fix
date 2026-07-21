@@ -91,7 +91,10 @@ loopback endpoint.
 - BLE and repair operations are local.
 - Network access occurs only when the user clicks an external download or
   optional support link.
-- Diagnostic log: `%LOCALAPPDATA%\WU-BT10-Fix\repair.log`.
+- Structured connection diagnostics are stored in
+  `%LOCALAPPDATA%\WU-BT10-Fix\diagnostics`. They rotate at 2 MiB and retain at
+  most 20 files. MIDI payload bytes are not recorded.
+- Emergency-repair log: `%LOCALAPPDATA%\WU-BT10-Fix\repair.log`.
 
 ## Build and test
 

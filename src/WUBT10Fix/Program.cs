@@ -7,30 +7,73 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Contains("--repair", StringComparer.OrdinalIgnoreCase))
-            return RunElevatedAction(args, RepairEngine.Run);
-
-        var diagnosisPath = ArgumentValue(args, "--diagnose-output");
-        if (!string.IsNullOrWhiteSpace(diagnosisPath))
-            return WriteDiagnosis(diagnosisPath);
-
-        var volumeResultPath = ArgumentValue(args, "--set-safe-volume");
-        if (!string.IsNullOrWhiteSpace(volumeResultPath))
-            return WriteSafeVolumeResult(volumeResultPath);
-
-        var midiTestPath = ArgumentValue(args, "--midi-test-output");
-        if (!string.IsNullOrWhiteSpace(midiTestPath))
+        DiagnosticTrace.Begin(DetermineMode(args));
+        try
         {
-            var durationText = ArgumentValue(args, "--midi-test-seconds");
-            var duration = int.TryParse(durationText, out var seconds)
-                ? TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 120))
-                : TimeSpan.FromSeconds(3);
-            return RunMidiTestAsync(midiTestPath, duration).GetAwaiter().GetResult();
-        }
+            if (args.Contains("--repair", StringComparer.OrdinalIgnoreCase))
+                return RunElevatedAction(args, RepairEngine.Run);
 
-        ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
-        return 0;
+            var diagnosticProbePath = ArgumentValue(args, "--diagnostic-probe-output");
+            if (!string.IsNullOrWhiteSpace(diagnosticProbePath))
+                return WriteDiagnosticProbe(diagnosticProbePath);
+
+            var diagnosisPath = ArgumentValue(args, "--diagnose-output");
+            if (!string.IsNullOrWhiteSpace(diagnosisPath))
+                return WriteDiagnosis(diagnosisPath);
+
+            var volumeResultPath = ArgumentValue(args, "--set-safe-volume");
+            if (!string.IsNullOrWhiteSpace(volumeResultPath))
+                return WriteSafeVolumeResult(volumeResultPath);
+
+            var midiTestPath = ArgumentValue(args, "--midi-test-output");
+            if (!string.IsNullOrWhiteSpace(midiTestPath))
+            {
+                var durationText = ArgumentValue(args, "--midi-test-seconds");
+                var duration = int.TryParse(durationText, out var seconds)
+                    ? TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 120))
+                    : TimeSpan.FromSeconds(3);
+                return RunMidiTestAsync(midiTestPath, duration).GetAwaiter().GetResult();
+            }
+
+            ApplicationConfiguration.Initialize();
+            Application.Run(new MainForm());
+            return 0;
+        }
+        finally
+        {
+            DiagnosticTrace.End("main-returned");
+        }
+    }
+
+    private static string DetermineMode(string[] args)
+    {
+        if (args.Contains("--repair", StringComparer.OrdinalIgnoreCase)) return "repair";
+        if (ArgumentValue(args, "--diagnostic-probe-output") is not null) return "diagnostic-probe";
+        if (ArgumentValue(args, "--diagnose-output") is not null) return "diagnose";
+        if (ArgumentValue(args, "--set-safe-volume") is not null) return "set-safe-volume";
+        if (ArgumentValue(args, "--midi-test-output") is not null) return "midi-test";
+        return "gui";
+    }
+
+    private static int WriteDiagnosticProbe(string path)
+    {
+        try
+        {
+            DiagnosticTrace.Write("process", "diagnostic-probe");
+            File.WriteAllText(path, JsonSerializer.Serialize(new
+            {
+                Success = true,
+                Version = Application.ProductVersion,
+                DiagnosticSession = DiagnosticTrace.SessionId,
+                DiagnosticLog = DiagnosticTrace.CurrentPath
+            }));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            RepairLog.Write("Could not write diagnostic probe: " + ex);
+            return 1;
+        }
     }
 
     private static int RunElevatedAction(string[] args, Func<RepairResult> action)
@@ -110,7 +153,9 @@ internal static class Program
                 Status = status,
                 PacketsReceived = packets,
                 MessagesReceived = messages,
-                Port = WindowsMidiLoopback.PortName
+                Port = WindowsMidiLoopback.PortName,
+                DiagnosticSession = DiagnosticTrace.SessionId,
+                DiagnosticLog = DiagnosticTrace.CurrentPath
             }));
             return 0;
         }
@@ -122,7 +167,9 @@ internal static class Program
                 Status = status,
                 Error = ex.Message,
                 PacketsReceived = packets,
-                MessagesReceived = messages
+                MessagesReceived = messages,
+                DiagnosticSession = DiagnosticTrace.SessionId,
+                DiagnosticLog = DiagnosticTrace.CurrentPath
             }));
             return 1;
         }

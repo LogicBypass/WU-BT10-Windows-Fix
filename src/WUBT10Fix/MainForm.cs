@@ -167,7 +167,7 @@ internal sealed class MainForm : Form
         _supportButton.Visible = SupportOptions.SupportUrl is not null;
         _supportButton.Click += (_, _) => OpenUrl(SupportOptions.SupportUrl!);
 
-        _logButton.Text = "View repair log";
+        _logButton.Text = "View diagnostic log";
         _logButton.FlatStyle = FlatStyle.Flat;
         _logButton.ForeColor = Navy;
         _logButton.Location = new Point(32, 256);
@@ -320,6 +320,11 @@ internal sealed class MainForm : Form
 
     private async Task ToggleMidiAsync()
     {
+        DiagnosticTrace.Write("ui", "midi-toggle-clicked", new Dictionary<string, object?>
+        {
+            ["isRunning"] = _midiBridge.IsRunning,
+            ["state"] = _midiBridge.State
+        });
         _midiButton.Enabled = false;
         try
         {
@@ -353,6 +358,7 @@ internal sealed class MainForm : Form
 
     private void OnMidiStateChanged(MidiBridgeState state)
     {
+        DiagnosticTrace.Write("ui", "midi-state-presented", new Dictionary<string, object?> { ["state"] = state });
         if (IsDisposed) return;
         BeginInvoke(() =>
         {
@@ -388,6 +394,12 @@ internal sealed class MainForm : Form
 
     protected override async void OnFormClosing(FormClosingEventArgs e)
     {
+        DiagnosticTrace.Write("ui", "form-closing", new Dictionary<string, object?>
+        {
+            ["isRunning"] = _midiBridge.IsRunning,
+            ["closingAfterMidiStop"] = _closingAfterMidiStop,
+            ["closeReason"] = e.CloseReason
+        });
         if (_midiBridge.IsRunning && !_closingAfterMidiStop)
         {
             e.Cancel = true;
@@ -458,10 +470,16 @@ internal sealed class MainForm : Form
 
     private async Task ConnectAudioAsync()
     {
+        DiagnosticTrace.Write("ui", "audio-connect-clicked", new Dictionary<string, object?>
+        {
+            ["midiIsRunning"] = _midiBridge.IsRunning,
+            ["midiState"] = _midiBridge.State
+        });
         if (_midiBridge.IsRunning)
             await _midiBridge.StopAsync();
 
         OpenUrl("ms-settings:bluetooth");
+        DiagnosticTrace.Write("ui", "bluetooth-settings-opened-for-audio");
         SetBusy(false,
             "Connect WU-BT10 AUDIO in Windows",
             "Select WU-BT10 AUDIO in Bluetooth settings. Return here afterward; the app will detect the playback endpoint and set it to 20%.",
@@ -535,16 +553,19 @@ internal sealed class MainForm : Form
     {
         try
         {
-            if (!File.Exists(RepairLog.Path))
+            var path = DiagnosticTrace.CurrentPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             {
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(RepairLog.Path)!);
-                File.WriteAllText(RepairLog.Path, "No repair has been run yet." + Environment.NewLine);
+                DiagnosticTrace.Write("ui", "diagnostic-log-open-requested");
+                path = DiagnosticTrace.CurrentPath;
             }
 
-            Process.Start(new ProcessStartInfo("notepad.exe", RepairLog.Path) { UseShellExecute = true });
+            if (!string.IsNullOrWhiteSpace(path))
+                Process.Start(new ProcessStartInfo("notepad.exe", path) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
+            DiagnosticTrace.Write("ui", "diagnostic-log-open-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
             RepairLog.Write("Could not open log: " + ex);
         }
     }

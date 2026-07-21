@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.2-diagnostic.1 - 2026-07-22
+
+- Added bounded structured diagnostic sessions for BLE advertisement, GATT,
+  packet, release, Audio-diagnosis, and UI lifecycle events.
+- Added `GattSession.SessionStatusChanged` observation without changing the
+  v1.4.1 connection or release policy.
+- Added correlation IDs and diagnostic-log paths to command-line MIDI test
+  results.
+- Added a device-neutral diagnostic probe for verifying packaged logging without
+  opening Audio or MIDI connections.
+- Added a hardware protocol for distinguishing a retained Windows connection
+  from Audio coexistence or an adapter firmware lock.
+- Added tests for diagnostic JSON structure, rotation, retention, and disposal.
+
 ## 1.4.1 - 2026-07-21
 
 - Kept all normal Audio, volume, diagnosis, and MIDI operations non-elevated.

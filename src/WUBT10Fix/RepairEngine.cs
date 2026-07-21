@@ -15,53 +15,90 @@ internal static class RepairEngine
             var disabledAudioDevices = DisabledBluetoothAudioDeviceIds();
             if (disabledAudioDevices.Length > 0)
             {
-                return new(
+                return TraceDiagnosis(new(
                     DeviceReadiness.NeedsRepair,
                     "Windows Bluetooth Audio hardware is disabled",
-                    "Normal app functions remain available without elevation. The optional emergency action can only re-enable this already-disabled device after explicit confirmation and UAC approval.");
+                    "Normal app functions remain available without elevation. The optional emergency action can only re-enable this already-disabled device after explicit confirmation and UAC approval."),
+                    disabledAudioDevices.Length,
+                    null,
+                    null);
             }
 
             if (EndpointReady())
             {
                 var volumeResult = SetSafeVolume();
-                return new(
+                return TraceDiagnosis(new(
                     DeviceReadiness.Ready,
                     "WU-BT10 AUDIO is ready — Windows volume set to 20%",
                     volumeResult.Success
                         ? "Use the keyboard's volume control for listening loudness. The app changes only the active WU-BT10 endpoint."
-                        : "The playback endpoint is active, but Windows did not accept the 20% volume setting.");
+                        : "The playback endpoint is active, but Windows did not accept the 20% volume setting."),
+                    0,
+                    null,
+                    true);
             }
 
             var devices = BluetoothNative.FindWuBt10AudioDevices();
             if (devices.Count == 0)
             {
-                return new(
+                return TraceDiagnosis(new(
                     DeviceReadiness.NotPaired,
                     "Pair WU-BT10 AUDIO first",
-                    "Open Windows Bluetooth settings, put the Casio instrument in Audio pairing mode, and pair WU-BT10 AUDIO.");
+                    "Open Windows Bluetooth settings, put the Casio instrument in Audio pairing mode, and pair WU-BT10 AUDIO."),
+                    0,
+                    0,
+                    false);
             }
 
             var bluetoothConnected = devices.Any(item => item.Connected);
             if (EndpointRegistered() && !bluetoothConnected)
             {
-                return new(
+                return TraceDiagnosis(new(
                     DeviceReadiness.ReadyDisconnected,
                     "WU-BT10 AUDIO is paired and currently disconnected",
-                    "Open Windows Bluetooth settings and connect WU-BT10 AUDIO. Windows should restore its playback output automatically.");
+                    "Open Windows Bluetooth settings and connect WU-BT10 AUDIO. Windows should restore its playback output automatically."),
+                    0,
+                    devices.Count,
+                    false);
             }
 
-            return new(
+            return TraceDiagnosis(new(
                 DeviceReadiness.ManualAction,
                 bluetoothConnected
                     ? "WU-BT10 is connected, but Windows has no playback output"
                     : "WU-BT10 AUDIO needs to be reconnected in Windows",
-                "Open Bluetooth settings and reconnect the Audio device. The app will not reset Bluetooth profiles, disable system hardware, or restart audio services.");
+                "Open Bluetooth settings and reconnect the Audio device. The app will not reset Bluetooth profiles, disable system hardware, or restart audio services."),
+                0,
+                devices.Count,
+                false);
         }
         catch (Exception ex)
         {
+            DiagnosticTrace.Write("audio", "diagnosis-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
             RepairLog.Write("Diagnosis failed: " + ex);
-            return new(DeviceReadiness.Error, "Could not inspect Windows audio", "View the log for diagnostic details, then try again.");
+            return TraceDiagnosis(
+                new(DeviceReadiness.Error, "Could not inspect Windows audio", "View the log for diagnostic details, then try again."),
+                null,
+                null,
+                null);
         }
+    }
+
+    private static DiagnosticResult TraceDiagnosis(
+        DiagnosticResult result,
+        int? disabledAudioDeviceCount,
+        int? wuBt10AudioDeviceCount,
+        bool? activeEndpointPresent)
+    {
+        DiagnosticTrace.Write("audio", "diagnosis-completed", new Dictionary<string, object?>
+        {
+            ["state"] = result.State,
+            ["title"] = result.Title,
+            ["disabledAudioDeviceCount"] = disabledAudioDeviceCount,
+            ["wuBt10AudioDeviceCount"] = wuBt10AudioDeviceCount,
+            ["activeEndpointPresent"] = activeEndpointPresent
+        });
+        return result;
     }
 
     internal static RepairResult Run()
