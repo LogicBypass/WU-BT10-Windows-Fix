@@ -72,3 +72,40 @@ uncached MIDI-characteristic read before installing the notification handler and
 enabling the CCCD. Keep `MaintainConnection`, discovery, retry, release, parser,
 and WMS behavior unchanged so the LED and reliability result can be attributed
 to the initial read.
+
+## Diagnostic.2 result
+
+The required initial characteristic read completed successfully and returned 20
+bytes. The session connected quickly, produced the vibraphone tone, and forwarded
+live MIDI traffic. It remained stable for more than seven minutes and received
+864 BLE packets containing 1,344 decoded messages. Closing the application
+unsubscribed the CCCD successfully, released GATT in 93.5 ms, closed WinMM, and
+removed the temporary Windows MIDI Services endpoint.
+
+The WU-BT10 indicator continued flashing. Because subscription and live MIDI
+traffic both succeeded, indicator state is recorded as secondary evidence rather
+than the functional acceptance criterion.
+
+## Automated GATT lifecycle A/B test
+
+The same instrument was then exercised by an unattended five-cycle
+connect/release harness. Each cycle opened BLE-MIDI, performed the initial read,
+subscribed to notifications, released the GATT objects, and verified that WU-BT10
+resumed advertising. A physical key event was not required because the piano does
+not emit continuous traffic until after an input event.
+
+| Windows GATT policy | Passed | Mean connect | Slowest connect | Mean release | Slowest whole cycle |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `GattSession.MaintainConnection = true` | 5/5 | 4,285.7 ms | 8,885.0 ms | 28.6 ms | 23,169.3 ms |
+| Finite uncached discovery, no maintained session | 5/5 | 3,479.4 ms | 8,431.3 ms | 29.6 ms | 14,116.4 ms |
+
+Both policies restored advertising after every release and left no application
+process or virtual endpoint behind. The finite policy is the production default:
+it matched observed reliability, reduced cycle latency, and does not ask Windows
+to retain indefinite reconnect ownership. The maintained policy remains
+available only through the diagnostic harness for future comparisons.
+
+Evidence files:
+
+- `TestResults/production-baseline-cycles-no-traffic.json`
+- `TestResults/production-no-maintain-cycles.json`

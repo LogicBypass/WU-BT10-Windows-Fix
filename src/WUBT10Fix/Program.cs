@@ -35,6 +35,25 @@ internal static class Program
                 return RunMidiTestAsync(midiTestPath, duration).GetAwaiter().GetResult();
             }
 
+            var midiCycleTestPath = ArgumentValue(args, "--midi-cycle-test-output");
+            if (!string.IsNullOrWhiteSpace(midiCycleTestPath))
+            {
+                var cycles = ArgumentInt(args, "--midi-cycle-count", 5, 1, 100);
+                var trafficTimeout = TimeSpan.FromSeconds(
+                    ArgumentInt(args, "--midi-cycle-traffic-seconds", 0, 0, 60));
+                var releaseTimeout = TimeSpan.FromSeconds(
+                    ArgumentInt(args, "--midi-cycle-release-seconds", 10, 1, 60));
+                var maintainConnection = ArgumentBool(args, "--midi-cycle-maintain-connection", false);
+                return RunMidiCycleTestAsync(
+                        midiCycleTestPath,
+                        cycles,
+                        trafficTimeout,
+                        releaseTimeout,
+                        maintainConnection)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+
             ApplicationConfiguration.Initialize();
             Application.Run(new MainForm());
             return 0;
@@ -52,6 +71,7 @@ internal static class Program
         if (ArgumentValue(args, "--diagnose-output") is not null) return "diagnose";
         if (ArgumentValue(args, "--set-safe-volume") is not null) return "set-safe-volume";
         if (ArgumentValue(args, "--midi-test-output") is not null) return "midi-test";
+        if (ArgumentValue(args, "--midi-cycle-test-output") is not null) return "midi-cycle-test";
         return "gui";
     }
 
@@ -175,9 +195,141 @@ internal static class Program
         }
     }
 
+    private static async Task<int> RunMidiCycleTestAsync(
+        string path,
+        int requestedCycles,
+        TimeSpan trafficTimeout,
+        TimeSpan releaseTimeout,
+        bool maintainConnection)
+    {
+        var results = new List<object>();
+        var allSucceeded = true;
+
+        await using var bridge = new MidiBridgeEngine(maintainConnection);
+        for (var cycle = 1; cycle <= requestedCycles; cycle++)
+        {
+            var startedAt = DateTimeOffset.UtcNow;
+            var packets = 0;
+            var messages = 0;
+            var status = "Starting";
+            var trafficRequired = trafficTimeout > TimeSpan.Zero;
+            var traffic = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var advertisementRestored = false;
+            string? error = null;
+
+            void OnStatus(string value) => status = value;
+            void OnPacket(int count)
+            {
+                packets = count;
+                traffic.TrySetResult();
+            }
+            void OnMessage(int count) => messages = count;
+
+            bridge.StatusChanged += OnStatus;
+            bridge.PacketReceived += OnPacket;
+            bridge.MessageReceived += OnMessage;
+
+            try
+            {
+                await bridge.StartAsync();
+                if (trafficRequired)
+                    await traffic.Task.WaitAsync(trafficTimeout);
+            }
+            catch (Exception ex)
+            {
+                error = ex.ToString();
+                allSucceeded = false;
+            }
+            finally
+            {
+                try
+                {
+                    await bridge.StopAsync();
+                }
+                catch (Exception ex)
+                {
+                    error = error is null ? ex.ToString() : error + Environment.NewLine + ex;
+                    allSucceeded = false;
+                }
+
+                bridge.StatusChanged -= OnStatus;
+                bridge.PacketReceived -= OnPacket;
+                bridge.MessageReceived -= OnMessage;
+            }
+
+            using (var releaseCancellation = new CancellationTokenSource(releaseTimeout))
+            {
+                try
+                {
+                    _ = await MidiBridgeEngine.FindAdvertisingWuBt10Async(
+                        releaseTimeout,
+                        releaseCancellation.Token);
+                    advertisementRestored = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    var releaseError = $"WU-BT10 did not advertise within {releaseTimeout.TotalSeconds:N0} seconds after Stop.";
+                    error = error is null ? releaseError : error + Environment.NewLine + releaseError;
+                    allSucceeded = false;
+                }
+                catch (Exception ex)
+                {
+                    error = error is null ? ex.ToString() : error + Environment.NewLine + ex;
+                    allSucceeded = false;
+                }
+            }
+
+            results.Add(new
+            {
+                Cycle = cycle,
+                Success = error is null && (!trafficRequired || packets > 0) && advertisementRestored,
+                StartedAt = startedAt,
+                ElapsedMilliseconds = (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
+                Status = status,
+                PacketsReceived = packets,
+                MessagesReceived = messages,
+                AdvertisementRestored = advertisementRestored,
+                Error = error
+            });
+
+            if (!allSucceeded)
+                break;
+        }
+
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            Success = allSucceeded && results.Count == requestedCycles,
+            RequestedCycles = requestedCycles,
+            CompletedCycles = results.Count,
+            TrafficTimeoutSeconds = trafficTimeout.TotalSeconds,
+            TrafficRequired = trafficTimeout > TimeSpan.Zero,
+            ReleaseTimeoutSeconds = releaseTimeout.TotalSeconds,
+            MaintainConnection = maintainConnection,
+            Results = results,
+            DiagnosticSession = DiagnosticTrace.SessionId,
+            DiagnosticLog = DiagnosticTrace.CurrentPath
+        }));
+
+        return allSucceeded && results.Count == requestedCycles ? 0 : 1;
+    }
+
     private static string? ArgumentValue(string[] args, string name)
     {
         var index = Array.FindIndex(args, item => item.Equals(name, StringComparison.OrdinalIgnoreCase));
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+
+    private static int ArgumentInt(string[] args, string name, int defaultValue, int minimum, int maximum)
+    {
+        var value = ArgumentValue(args, name);
+        return int.TryParse(value, out var parsed)
+            ? Math.Clamp(parsed, minimum, maximum)
+            : defaultValue;
+    }
+
+    private static bool ArgumentBool(string[] args, string name, bool defaultValue)
+    {
+        var value = ArgumentValue(args, name);
+        return bool.TryParse(value, out var parsed) ? parsed : defaultValue;
     }
 }

@@ -20,6 +20,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     private static readonly Guid MidiCharacteristicUuid = new("7772E5DB-3868-4112-A1A9-F2669D106BF3");
 
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
+    private readonly bool _maintainConnection;
     private WindowsMidiLoopback? _loopback;
     private WinMmMidiOutput? _midiOutput;
     private BluetoothLEDevice? _device;
@@ -41,6 +42,12 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     internal bool IsRunning { get; private set; }
     internal bool IsConnected { get; private set; }
     internal MidiBridgeState State { get; private set; } = MidiBridgeState.Stopped;
+
+    internal MidiBridgeEngine(bool maintainConnection = false)
+    {
+        _maintainConnection = maintainConnection;
+        Trace("engine-created", ("maintainConnection", _maintainConnection));
+    }
 
     internal async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -188,8 +195,15 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             // indefinitely for the peripheral to become available. Service
             // discovery below is the finite operation that tells us whether the
             // link and GATT database are ready yet.
-            session.MaintainConnection = true;
-            Trace("gatt-maintain-connection-changed", ("value", true));
+            if (_maintainConnection)
+            {
+                session.MaintainConnection = true;
+                Trace("gatt-maintain-connection-changed", ("value", true));
+            }
+            else
+            {
+                Trace("gatt-maintain-connection-skipped", ("reason", "finite-uncached-service-discovery-policy"));
+            }
             await Task.Delay(350, cancellationToken);
 
             StatusChanged?.Invoke("Opening the BLE-MIDI service…");
@@ -320,7 +334,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         }
     }
 
-    private static async Task<ulong> FindAdvertisingWuBt10Async(TimeSpan timeout, CancellationToken cancellationToken)
+    internal static async Task<ulong> FindAdvertisingWuBt10Async(TimeSpan timeout, CancellationToken cancellationToken)
     {
         var found = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
         var watcher = new BluetoothLEAdvertisementWatcher { ScanningMode = BluetoothLEScanningMode.Active };
