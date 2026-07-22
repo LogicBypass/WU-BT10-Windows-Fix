@@ -28,6 +28,8 @@ internal sealed class MainForm : Form
     private readonly Button _midiButton = new();
     private bool _closingAfterMidiStop;
     private bool _refreshInProgress;
+    private int _midiReceivedCount;
+    private int _midiSentCount;
     private DateTime _lastAudioRefresh = DateTime.MinValue;
 
     internal MainForm()
@@ -43,6 +45,7 @@ internal sealed class MainForm : Form
         BuildInterface();
         _midiBridge.StatusChanged += OnMidiStatusChanged;
         _midiBridge.MessageReceived += OnMidiMessageReceived;
+        _midiBridge.MessageSent += OnMidiMessageSent;
         _midiBridge.StateChanged += OnMidiStateChanged;
         Shown += async (_, _) => await RefreshDiagnosisAsync();
         Activated += async (_, _) =>
@@ -289,7 +292,7 @@ internal sealed class MainForm : Form
         };
         var instructions = new Label
         {
-            Text = "Keep this app open while using Bluetooth MIDI. It connects directly to WU-BT10 MIDI, forwards notes immediately without timestamp scheduling, and creates a temporary Windows MIDI Services port named “WU-BT10 MIDI Bridge”. Stop the bridge before connecting another phone, tablet, or MIDI utility.",
+            Text = "Keep this app open while using Bluetooth MIDI. It connects directly to WU-BT10 MIDI, forwards MIDI in both directions, and creates a temporary Windows MIDI Services port named “WU-BT10 MIDI Bridge”. Stop the bridge before connecting another phone, tablet, or MIDI utility.",
             ForeColor = Color.FromArgb(70, 79, 92),
             AutoSize = false,
             Location = new Point(32, 292),
@@ -308,7 +311,7 @@ internal sealed class MainForm : Form
 
         var midiPrivacy = new Label
         {
-            Text = "• MIDI notes/controls in • No telemetry",
+            Text = "• MIDI in/out • No telemetry",
             ForeColor = Color.FromArgb(112, 120, 132),
             AutoSize = true,
             Location = new Point(410, 405)
@@ -335,6 +338,8 @@ internal sealed class MainForm : Form
             }
             else
             {
+                _midiReceivedCount = 0;
+                _midiSentCount = 0;
                 SetMidiPresentation("Starting Bluetooth MIDI", "Preparing the virtual port and waiting for a live WU-BT10 MIDI signal…", Cyan, true);
                 await _midiBridge.StartAsync();
             }
@@ -382,8 +387,22 @@ internal sealed class MainForm : Form
 
     private void OnMidiMessageReceived(int count)
     {
-        if (IsDisposed || count % 10 != 1) return;
-        BeginInvoke(() => _midiStatusTitle.Text = $"WU-BT10 MIDI is connected — {count:N0} messages received");
+        _midiReceivedCount = count;
+        UpdateMidiActivityTitle(count);
+    }
+
+    private void OnMidiMessageSent(int count)
+    {
+        _midiSentCount = count;
+        UpdateMidiActivityTitle(count);
+    }
+
+    private void UpdateMidiActivityTitle(int count)
+    {
+        if (IsDisposed || count % 10 != 1)
+            return;
+        BeginInvoke(() => _midiStatusTitle.Text =
+            $"WU-BT10 MIDI is connected — {_midiReceivedCount:N0} in / {_midiSentCount:N0} out");
     }
 
     private void SetMidiPresentation(string title, string message, Color color, bool running)

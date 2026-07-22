@@ -3,6 +3,7 @@ using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
 using Windows.Storage.Streams;
+using System.Threading.Channels;
 
 namespace WUBT10Fix;
 
@@ -21,9 +22,15 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     private static readonly Guid MidiCharacteristicUuid = new("7772E5DB-3868-4112-A1A9-F2669D106BF3");
 
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
+    private readonly SemaphoreSlim _bleWriteLock = new(1, 1);
+    private readonly BleMidiParser _parser = new();
+    private readonly object _parserGate = new();
     private readonly bool _maintainConnection;
     private WindowsMidiLoopback? _loopback;
     private WinMmMidiOutput? _midiOutput;
+    private WinMmMidiInput? _midiInput;
+    private Channel<byte[]>? _outboundMidi;
+    private Task? _outboundPump;
     private BluetoothLEDevice? _device;
     private GattSession? _session;
     private GattDeviceService? _service;
@@ -34,12 +41,15 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     private int _stopRequestCount;
     private int _packetCount;
     private int _messageCount;
+    private int _outboundMessageCount;
+    private int _outboundDropCount;
     private int _disposeState;
     private DateTimeOffset? _firstPacketAt;
     private DateTimeOffset? _lastPacketAt;
 
     internal event Action<string>? StatusChanged;
     internal event Action<int>? MessageReceived;
+    internal event Action<int>? MessageSent;
     internal event Action<int>? PacketReceived;
     internal event Action<MidiBridgeState>? StateChanged;
 
@@ -80,9 +90,21 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             StatusChanged?.Invoke("Creating the Windows MIDI port…");
             _loopback = new WindowsMidiLoopback();
             _midiOutput = await Task.Run(_loopback.OpenOutput, _runCancellation.Token);
+            _outboundMidi = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(2048)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+            _midiInput = await Task.Run(
+                () => WindowsMidiLoopback.OpenInput(OnWindowsMidiReceived),
+                _runCancellation.Token);
             Trace("midi-output-opened", ("port", WindowsMidiLoopback.PortName));
 
             await ConnectWithRetryAsync(TimeSpan.FromMinutes(1), generation, _runCancellation.Token);
+            _outboundPump = Task.Run(
+                () => PumpOutboundMidiAsync(_outboundMidi.Reader, _runCancellation.Token),
+                CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -137,6 +159,8 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
                     _packetCount = 0;
                     _firstPacketAt = null;
                     _lastPacketAt = null;
+                    lock (_parserGate)
+                        _parser.Reset();
                     IsConnected = true;
                     SetState(MidiBridgeState.Connected);
                     Trace("connect-attempt-succeeded", ("attempt", attempt), ("address", BluetoothNative.FormatAddress(address)));
@@ -584,7 +608,10 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
                     ("messageCountBeforePacket", Volatile.Read(ref _messageCount)));
             }
             PacketReceived?.Invoke(packetCount);
-            foreach (var message in BleMidiParser.ParseShortMessages(bytes))
+            IReadOnlyList<byte[]> messages;
+            lock (_parserGate)
+                messages = _parser.Parse(bytes);
+            foreach (var message in messages)
             {
                 _midiOutput?.Send(message);
                 var count = Interlocked.Increment(ref _messageCount);
@@ -596,6 +623,109 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             Trace("midi-forwarding-failed", ("exception", ex.ToString()));
             RepairLog.Write("MIDI forwarding error: " + ex);
             StatusChanged?.Invoke("A MIDI message could not be forwarded. View the repair log.");
+        }
+    }
+
+    private void OnWindowsMidiReceived(byte[] message)
+    {
+        var channel = _outboundMidi;
+        if (channel is not null && channel.Writer.TryWrite(message))
+            return;
+
+        var dropped = Interlocked.Increment(ref _outboundDropCount);
+        if (dropped == 1 || dropped % 100 == 0)
+            Trace("outbound-midi-dropped", ("dropCount", dropped), ("reason", channel is null ? "bridge-not-running" : "queue-full"));
+    }
+
+    private async Task PumpOutboundMidiAsync(ChannelReader<byte[]> reader, CancellationToken cancellationToken)
+    {
+        Trace("outbound-midi-pump-started");
+        try
+        {
+            await foreach (var message in reader.ReadAllAsync(cancellationToken))
+            {
+                try
+                {
+                    await SendMidiToBluetoothAsync(message, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Trace("outbound-midi-send-failed", ("exception", ex.ToString()));
+                    RepairLog.Write("MIDI send-to-piano error: " + ex);
+                    StatusChanged?.Invoke("A MIDI message could not be sent to the piano. The bridge will keep running.");
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal bridge shutdown.
+        }
+        finally
+        {
+            Trace(
+                "outbound-midi-pump-ended",
+                ("messageCount", Volatile.Read(ref _outboundMessageCount)),
+                ("dropCount", Volatile.Read(ref _outboundDropCount)));
+        }
+    }
+
+    private async Task SendMidiToBluetoothAsync(byte[] message, CancellationToken cancellationToken)
+    {
+        if (message.Length == 0)
+            return;
+
+        await _bleWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            var characteristic = _characteristic;
+            var session = _session;
+            if (characteristic is null || session is null || !IsConnected)
+            {
+                Trace("outbound-midi-dropped", ("reason", "ble-not-connected"));
+                return;
+            }
+
+            var properties = characteristic.CharacteristicProperties;
+            var writeOption = properties.HasFlag(GattCharacteristicProperties.Write)
+                ? GattWriteOption.WriteWithResponse
+                : properties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)
+                    ? GattWriteOption.WriteWithoutResponse
+                    : throw new InvalidOperationException("The WU-BT10 MIDI characteristic is not writable.");
+            var maximumPacketSize = Math.Clamp(checked((int)session.MaxPduSize) - 3, 20, 512);
+            IReadOnlyList<byte[]> packets = message[0] == 0xF0
+                ? BleMidiParser.EncodeSystemExclusive(message, maximumPacketSize)
+                : [BleMidiParser.EncodeSingle(message)];
+
+            foreach (var packet in packets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                using var writer = new DataWriter();
+                writer.WriteBytes(packet);
+                var buffer = writer.DetachBuffer();
+                var result = await characteristic.WriteValueAsync(buffer, writeOption);
+                if (result != GattCommunicationStatus.Success)
+                    throw new InvalidOperationException($"WU-BT10 rejected a MIDI write ({result}).");
+            }
+
+            var count = Interlocked.Increment(ref _outboundMessageCount);
+            MessageSent?.Invoke(count);
+            if (count == 1 || count % 100 == 0)
+            {
+                Trace(
+                    "outbound-midi-checkpoint",
+                    ("messageCount", count),
+                    ("byteCount", message.Length),
+                    ("packetCount", packets.Count),
+                    ("writeOption", writeOption));
+            }
+        }
+        finally
+        {
+            _bleWriteLock.Release();
         }
     }
 
@@ -678,6 +808,8 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             session.SessionStatusChanged -= OnSessionStatusChanged;
         session?.Dispose();
         device?.Dispose();
+        lock (_parserGate)
+            _parser.Reset();
         Trace(
             "gatt-release-completed",
             ("elapsedMs", (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds),
@@ -689,6 +821,22 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         Trace("stop-core-started");
         IsRunning = false;
         _runCancellation?.Cancel();
+        _midiInput?.Dispose();
+        _midiInput = null;
+        _outboundMidi?.Writer.TryComplete();
+        if (_outboundPump is not null)
+        {
+            try
+            {
+                await _outboundPump;
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal shutdown.
+            }
+        }
+        _outboundPump = null;
+        _outboundMidi = null;
         await ReleaseBluetoothAsync(unsubscribe: true);
         _midiOutput?.Dispose();
         _midiOutput = null;
@@ -696,6 +844,8 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         _loopback = null;
         _runCancellation?.Dispose();
         _runCancellation = null;
+        Interlocked.Exchange(ref _outboundMessageCount, 0);
+        Interlocked.Exchange(ref _outboundDropCount, 0);
         SetState(MidiBridgeState.Stopped);
         Trace("stop-core-completed");
     }
@@ -776,6 +926,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         }
         finally
         {
+            _bleWriteLock.Dispose();
             _lifecycle.Dispose();
             Volatile.Write(ref _disposeState, 2);
         }

@@ -143,3 +143,35 @@ WMS loopback transport remains in use, protected by the new single-instance
 lease and serialized lifecycle. App-owned endpoints should be reconsidered when
 a stable WMS SDK/runtime is available and passes endpoint-create, clean-exit,
 crash-exit, and service-ping regression tests.
+
+## Bidirectional MIDI and parser regression tests
+
+The retained loopback implementation was extended with an exact-name WinMM
+input on the application endpoint, an ordered outbound queue, serialized GATT
+writes, BLE-MIDI timestamp encoding, and stateful receive parsing. The parser
+now preserves running status across packets and handles interleaved real-time
+messages and multi-packet SysEx.
+
+Verification results:
+
+- Three hardware connect/release cycles opened and closed the reverse WinMM
+  input 3/3 times and started/stopped its outbound pump 3/3 times, with no
+  failed or timed-out event.
+- A Windows MIDI Services client sent Note On and Note Off through
+  `WU-BT10 MIDI Bridge`. Both messages reached the app and produced successful
+  WU-BT10 GATT writes: 2 sent, 0 dropped, 0 failed.
+- A safe six-byte MIDI Identity Request traversed the long-message WinMM input
+  and was encoded into two BLE-MIDI packets with 0 dropped and 0 failed writes.
+  The piano did not return an identity response, which is not required for the
+  bridge acceptance test.
+- The standalone WinMM loopback probe passed short-message and five-byte SysEx
+  delivery in both directions: 2/2 app-to-client and 2/2 client-to-app. Both
+  long-message buffers completed, both inputs and outputs closed, and the
+  endpoint was removed.
+
+Evidence files:
+
+- `TestResults/bidirectional-loopback-cycles.json`
+- `TestResults/reverse-midi-live-test.json`
+- `TestResults/reverse-sysex-live-test.json`
+- `TestResults/winmm-bidirectional-probe-2.json`

@@ -32,6 +32,10 @@ internal static class Program
             if (!string.IsNullOrWhiteSpace(volumeResultPath))
                 return WriteSafeVolumeResult(volumeResultPath);
 
+            var winMmProbePath = ArgumentValue(args, "--winmm-loopback-probe-output");
+            if (!string.IsNullOrWhiteSpace(winMmProbePath))
+                return RunWinMmLoopbackProbeAsync(winMmProbePath).GetAwaiter().GetResult();
+
             var midiTestPath = ArgumentValue(args, "--midi-test-output");
             if (!string.IsNullOrWhiteSpace(midiTestPath))
             {
@@ -72,7 +76,7 @@ internal static class Program
     }
 
     private static bool RequiresExclusiveInstance(string mode) =>
-        mode is "gui" or "midi-test" or "midi-cycle-test";
+        mode is "gui" or "midi-test" or "midi-cycle-test" or "winmm-loopback-probe";
 
     private static int ReportInstanceConflict(string[] args, string mode)
     {
@@ -82,9 +86,12 @@ internal static class Program
             ["mode"] = mode
         });
 
-        var resultPath = ArgumentValue(args, mode == "midi-cycle-test"
-            ? "--midi-cycle-test-output"
-            : "--midi-test-output");
+        var resultPath = ArgumentValue(args, mode switch
+        {
+            "midi-cycle-test" => "--midi-cycle-test-output",
+            "winmm-loopback-probe" => "--winmm-loopback-probe-output",
+            _ => "--midi-test-output"
+        });
         if (!string.IsNullOrWhiteSpace(resultPath))
         {
             File.WriteAllText(resultPath, JsonSerializer.Serialize(new
@@ -110,6 +117,7 @@ internal static class Program
         if (ArgumentValue(args, "--diagnostic-probe-output") is not null) return "diagnostic-probe";
         if (ArgumentValue(args, "--diagnose-output") is not null) return "diagnose";
         if (ArgumentValue(args, "--set-safe-volume") is not null) return "set-safe-volume";
+        if (ArgumentValue(args, "--winmm-loopback-probe-output") is not null) return "winmm-loopback-probe";
         if (ArgumentValue(args, "--midi-test-output") is not null) return "midi-test";
         if (ArgumentValue(args, "--midi-cycle-test-output") is not null) return "midi-cycle-test";
         return "gui";
@@ -194,10 +202,73 @@ internal static class Program
         }
     }
 
+    private static async Task<int> RunWinMmLoopbackProbeAsync(string path)
+    {
+        var appToClient = new System.Collections.Concurrent.ConcurrentQueue<byte[]>();
+        var clientToApp = new System.Collections.Concurrent.ConcurrentQueue<byte[]>();
+        var appToClientReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clientToAppReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startedAt = DateTimeOffset.UtcNow;
+
+        try
+        {
+            using var loopback = new WindowsMidiLoopback();
+            using var appOutput = loopback.OpenOutput();
+            using var clientInput = WinMmMidiInput.Open(WindowsMidiLoopback.PortName, message =>
+            {
+                appToClient.Enqueue(message);
+                if (appToClient.Count >= 2)
+                    appToClientReady.TrySetResult();
+            });
+            using var clientOutput = WinMmMidiOutput.Open(WindowsMidiLoopback.PortName);
+            using var appInput = WindowsMidiLoopback.OpenInput(message =>
+            {
+                clientToApp.Enqueue(message);
+                if (clientToApp.Count >= 2)
+                    clientToAppReady.TrySetResult();
+            });
+
+            appOutput.Send([0x90, 0x3C, 0x40]);
+            appOutput.Send([0xF0, 0x7D, 0x01, 0x02, 0xF7]);
+            clientOutput.Send([0x80, 0x3C, 0x00]);
+            clientOutput.Send([0xF0, 0x7D, 0x03, 0x04, 0xF7]);
+
+            await Task.WhenAll(appToClientReady.Task, clientToAppReady.Task)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            File.WriteAllText(path, JsonSerializer.Serialize(new
+            {
+                Success = true,
+                AppToClientMessages = appToClient.Count,
+                ClientToAppMessages = clientToApp.Count,
+                AppToClientByteCounts = appToClient.Select(message => message.Length).ToArray(),
+                ClientToAppByteCounts = clientToApp.Select(message => message.Length).ToArray(),
+                ElapsedMilliseconds = (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
+                DiagnosticSession = DiagnosticTrace.SessionId,
+                DiagnosticLog = DiagnosticTrace.CurrentPath
+            }));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            File.WriteAllText(path, JsonSerializer.Serialize(new
+            {
+                Success = false,
+                Error = ex.ToString(),
+                AppToClientMessages = appToClient.Count,
+                ClientToAppMessages = clientToApp.Count,
+                ElapsedMilliseconds = (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
+                DiagnosticSession = DiagnosticTrace.SessionId,
+                DiagnosticLog = DiagnosticTrace.CurrentPath
+            }));
+            return 1;
+        }
+    }
+
     private static async Task<int> RunMidiTestAsync(string path, TimeSpan listenDuration)
     {
         var messages = 0;
         var packets = 0;
+        var sent = 0;
         string status = "Starting";
         try
         {
@@ -205,6 +276,7 @@ internal static class Program
             bridge.StatusChanged += value => status = value;
             bridge.MessageReceived += count => messages = count;
             bridge.PacketReceived += count => packets = count;
+            bridge.MessageSent += count => sent = count;
             await bridge.StartAsync();
             await Task.Delay(listenDuration);
             File.WriteAllText(path, JsonSerializer.Serialize(new
@@ -213,6 +285,7 @@ internal static class Program
                 Status = status,
                 PacketsReceived = packets,
                 MessagesReceived = messages,
+                MessagesSent = sent,
                 Port = WindowsMidiLoopback.PortName,
                 DiagnosticSession = DiagnosticTrace.SessionId,
                 DiagnosticLog = DiagnosticTrace.CurrentPath
@@ -228,6 +301,7 @@ internal static class Program
                 Error = ex.Message,
                 PacketsReceived = packets,
                 MessagesReceived = messages,
+                MessagesSent = sent,
                 DiagnosticSession = DiagnosticTrace.SessionId,
                 DiagnosticLog = DiagnosticTrace.CurrentPath
             }));
@@ -251,6 +325,7 @@ internal static class Program
             var startedAt = DateTimeOffset.UtcNow;
             var packets = 0;
             var messages = 0;
+            var sent = 0;
             var status = "Starting";
             var trafficRequired = trafficTimeout > TimeSpan.Zero;
             var traffic = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -264,10 +339,12 @@ internal static class Program
                 traffic.TrySetResult();
             }
             void OnMessage(int count) => messages = count;
+            void OnSent(int count) => sent = count;
 
             bridge.StatusChanged += OnStatus;
             bridge.PacketReceived += OnPacket;
             bridge.MessageReceived += OnMessage;
+            bridge.MessageSent += OnSent;
 
             try
             {
@@ -295,6 +372,7 @@ internal static class Program
                 bridge.StatusChanged -= OnStatus;
                 bridge.PacketReceived -= OnPacket;
                 bridge.MessageReceived -= OnMessage;
+                bridge.MessageSent -= OnSent;
             }
 
             using (var releaseCancellation = new CancellationTokenSource(releaseTimeout))
@@ -328,6 +406,7 @@ internal static class Program
                 Status = status,
                 PacketsReceived = packets,
                 MessagesReceived = messages,
+                MessagesSent = sent,
                 AdvertisementRestored = advertisementRestored,
                 Error = error
             });

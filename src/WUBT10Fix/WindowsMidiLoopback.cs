@@ -74,6 +74,9 @@ internal sealed class WindowsMidiLoopback : IDisposable
         throw new InvalidOperationException("The virtual MIDI port was created but did not become available.", lastError);
     }
 
+    internal static WinMmMidiInput OpenInput(Action<byte[]> messageReceived) =>
+        WinMmMidiInput.Open(AppPortName, messageReceived);
+
     private static string FindMidiTool()
     {
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
