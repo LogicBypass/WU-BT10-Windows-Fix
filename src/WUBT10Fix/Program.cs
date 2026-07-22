@@ -38,9 +38,13 @@ internal static class Program
             if (!string.IsNullOrWhiteSpace(volumeResultPath))
                 return WriteSafeVolumeResult(volumeResultPath);
 
-            var audioPlaybackTestPath = ArgumentValue(args, "--audio-playback-test-output");
-            if (!string.IsNullOrWhiteSpace(audioPlaybackTestPath))
-                return RunAudioPlaybackTestAsync(audioPlaybackTestPath).GetAwaiter().GetResult();
+            var audioConnectPath = ArgumentValue(args, "--audio-connect-output");
+            if (!string.IsNullOrWhiteSpace(audioConnectPath))
+                return RunAudioSwitchAsync(audioConnectPath, true).GetAwaiter().GetResult();
+
+            var audioDisconnectPath = ArgumentValue(args, "--audio-disconnect-output");
+            if (!string.IsNullOrWhiteSpace(audioDisconnectPath))
+                return RunAudioSwitchAsync(audioDisconnectPath, false).GetAwaiter().GetResult();
 
             var winMmProbePath = ArgumentValue(args, "--winmm-loopback-probe-output");
             if (!string.IsNullOrWhiteSpace(winMmProbePath))
@@ -67,13 +71,24 @@ internal static class Program
                 var holdDuration = TimeSpan.FromSeconds(
                     ArgumentInt(args, "--midi-cycle-hold-seconds", 0, 0, 60));
                 var maintainConnection = ArgumentBool(args, "--midi-cycle-maintain-connection", false);
+                var sendSelfTestNote = ArgumentBool(args, "--midi-cycle-send-note", false);
                 return RunMidiCycleTestAsync(
                         midiCycleTestPath,
                         cycles,
                         trafficTimeout,
                         releaseTimeout,
                         holdDuration,
-                        maintainConnection)
+                        maintainConnection,
+                        sendSelfTestNote)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+
+            var integratedCyclePath = ArgumentValue(args, "--integrated-cycle-test-output");
+            if (!string.IsNullOrWhiteSpace(integratedCyclePath))
+            {
+                var cycles = ArgumentInt(args, "--integrated-cycle-count", 1, 1, 25);
+                return RunIntegratedCycleTestAsync(integratedCyclePath, cycles)
                     .GetAwaiter()
                     .GetResult();
             }
@@ -89,7 +104,7 @@ internal static class Program
     }
 
     private static bool RequiresExclusiveInstance(string mode) =>
-        mode is "gui" or "midi-test" or "midi-cycle-test" or "winmm-loopback-probe";
+        mode is "gui" or "midi-test" or "midi-cycle-test" or "integrated-cycle-test" or "winmm-loopback-probe";
 
     private static int ReportInstanceConflict(string[] args, string mode)
     {
@@ -102,6 +117,7 @@ internal static class Program
         var resultPath = ArgumentValue(args, mode switch
         {
             "midi-cycle-test" => "--midi-cycle-test-output",
+            "integrated-cycle-test" => "--integrated-cycle-test-output",
             "winmm-loopback-probe" => "--winmm-loopback-probe-output",
             _ => "--midi-test-output"
         });
@@ -132,10 +148,12 @@ internal static class Program
         if (ArgumentValue(args, "--diagnostic-probe-output") is not null) return "diagnostic-probe";
         if (ArgumentValue(args, "--diagnose-output") is not null) return "diagnose";
         if (ArgumentValue(args, "--set-safe-volume") is not null) return "set-safe-volume";
-        if (ArgumentValue(args, "--audio-playback-test-output") is not null) return "audio-playback-test";
+        if (ArgumentValue(args, "--audio-connect-output") is not null) return "audio-connect";
+        if (ArgumentValue(args, "--audio-disconnect-output") is not null) return "audio-disconnect";
         if (ArgumentValue(args, "--winmm-loopback-probe-output") is not null) return "winmm-loopback-probe";
         if (ArgumentValue(args, "--midi-test-output") is not null) return "midi-test";
         if (ArgumentValue(args, "--midi-cycle-test-output") is not null) return "midi-cycle-test";
+        if (ArgumentValue(args, "--integrated-cycle-test-output") is not null) return "integrated-cycle-test";
         return "gui";
     }
 
@@ -164,7 +182,7 @@ internal static class Program
     {
         var resultPath = ArgumentValue(args, "--result");
         RepairResult result;
-        using var mutationLease = SingleInstanceLease.TryAcquire(SingleInstanceLease.AudioMutationMutexName);
+        using var mutationLease = AudioOperationLease.TryAcquire();
         if (!mutationLease.IsAcquired)
         {
             result = RepairResult.Failed("Another Audio compatibility or repair action is already running. Wait for it to finish, then diagnose again.");
@@ -226,19 +244,22 @@ internal static class Program
         }
     }
 
-    private static async Task<int> RunAudioPlaybackTestAsync(string path)
+    private static async Task<int> RunAudioSwitchAsync(string path, bool connect)
     {
+        AudioSwitchResult result;
         try
         {
-            var result = await AudioPlaybackTester.PlayAsync();
-            File.WriteAllText(path, JsonSerializer.Serialize(result));
-            return result.Success ? 0 : 1;
+            result = connect
+                ? await AudioConnectionController.ConnectAsync()
+                : await AudioConnectionController.DisconnectAsync();
         }
         catch (Exception ex)
         {
-            File.WriteAllText(path, JsonSerializer.Serialize(new AudioPlaybackTestResult(false, ex.Message)));
-            return 1;
+            result = AudioSwitchResult.Failed(ex.Message);
         }
+
+        File.WriteAllText(path, JsonSerializer.Serialize(result));
+        return result.Success ? 0 : 1;
     }
 
     private static async Task<int> RunWinMmLoopbackProbeAsync(string path)
@@ -311,7 +332,7 @@ internal static class Program
         string status = "Starting";
         try
         {
-            await using var bridge = new MidiBridgeEngine();
+            await using var bridge = new MidiBridgeEngine(maintainConnection: true);
             bridge.StatusChanged += value => status = value;
             bridge.MessageReceived += count => messages = count;
             bridge.PacketReceived += count => packets = count;
@@ -354,7 +375,8 @@ internal static class Program
         TimeSpan trafficTimeout,
         TimeSpan releaseTimeout,
         TimeSpan holdDuration,
-        bool maintainConnection)
+        bool maintainConnection,
+        bool sendSelfTestNote)
     {
         var results = new List<object>();
         var allSucceeded = true;
@@ -368,7 +390,9 @@ internal static class Program
             var sent = 0;
             var status = "Starting";
             var trafficRequired = trafficTimeout > TimeSpan.Zero;
+            var requiredSentMessages = sendSelfTestNote ? 3 : 0;
             var traffic = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var outboundComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var advertisementRestored = false;
             string? error = null;
 
@@ -379,7 +403,12 @@ internal static class Program
                 traffic.TrySetResult();
             }
             void OnMessage(int count) => messages = count;
-            void OnSent(int count) => sent = count;
+            void OnSent(int count)
+            {
+                sent = count;
+                if (count >= requiredSentMessages)
+                    outboundComplete.TrySetResult();
+            }
 
             bridge.StatusChanged += OnStatus;
             bridge.PacketReceived += OnPacket;
@@ -389,6 +418,15 @@ internal static class Program
             try
             {
                 await bridge.StartAsync();
+                if (sendSelfTestNote)
+                {
+                    using var testOutput = WinMmMidiOutput.Open(WindowsMidiLoopback.PortName);
+                    testOutput.Send([0x90, 0x3C, 0x08]);
+                    await Task.Delay(TimeSpan.FromMilliseconds(120));
+                    testOutput.Send([0x80, 0x3C, 0x00]);
+                    testOutput.Send([0xB0, 0x7B, 0x00]);
+                    await outboundComplete.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                }
                 if (trafficRequired)
                     await traffic.Task.WaitAsync(trafficTimeout);
                 if (holdDuration > TimeSpan.Zero)
@@ -442,7 +480,10 @@ internal static class Program
             results.Add(new
             {
                 Cycle = cycle,
-                Success = error is null && (!trafficRequired || packets > 0) && advertisementRestored,
+                Success = error is null
+                    && (!trafficRequired || packets > 0)
+                    && (!sendSelfTestNote || sent >= requiredSentMessages)
+                    && advertisementRestored,
                 StartedAt = startedAt,
                 ElapsedMilliseconds = (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
                 Status = status,
@@ -467,12 +508,177 @@ internal static class Program
             ReleaseTimeoutSeconds = releaseTimeout.TotalSeconds,
             HoldSeconds = holdDuration.TotalSeconds,
             MaintainConnection = maintainConnection,
+            SendSelfTestNote = sendSelfTestNote,
             Results = results,
             DiagnosticSession = DiagnosticTrace.SessionId,
             DiagnosticLog = DiagnosticTrace.CurrentPath
         }));
 
         return allSucceeded && results.Count == requestedCycles ? 0 : 1;
+    }
+
+    private static async Task<int> RunIntegratedCycleTestAsync(string path, int requestedCycles)
+    {
+        var results = new List<object>();
+        var allSucceeded = true;
+
+        for (var cycle = 1; cycle <= requestedCycles; cycle++)
+        {
+            var startedAt = DateTimeOffset.UtcNow;
+            var phase = "prepare";
+            var sent = 0;
+            var checkpoints = new List<object>();
+            string? error = null;
+            MidiBridgeEngine? bridge = null;
+
+            try
+            {
+                phase = "ensure-audio-mode";
+                var audioMode = await AudioConnectionController.ConnectAsync();
+                EnsureAudioSwitchSucceeded(audioMode, phase);
+                EnsureSafeAudioConnected(phase);
+                checkpoints.Add(CaptureIntegratedCheckpoint(phase, sent));
+
+                phase = "coordinated-audio-to-midi-handoff";
+                bridge = new MidiBridgeEngine(
+                    maintainConnection: true,
+                    afterMaintainConnection: async cancellationToken =>
+                    {
+                        var release = await AudioConnectionController.DisconnectAsync(cancellationToken);
+                        EnsureAudioSwitchSucceeded(release, "release-audio-after-gatt-maintain-request");
+                    });
+                bridge.MessageSent += count => sent = count;
+                await bridge.StartAsync();
+                using var testOutput = WinMmMidiOutput.Open(WindowsMidiLoopback.PortName);
+                await SendMidiSelfTestNoteAsync(testOutput, () => sent, expectedSentMessages: 3);
+                if (RepairEngine.IsAudioEndpointActive()
+                    || BluetoothNative.FindWuBt10AudioDevices().Any(device => device.Connected))
+                {
+                    throw new InvalidOperationException("WU-BT10 Audio remained connected after the coordinated MIDI handoff.");
+                }
+                checkpoints.Add(CaptureIntegratedCheckpoint(phase, sent));
+
+                phase = "midi-to-audio-handoff";
+                await bridge.StopAsync();
+                await WaitForMidiAdvertisementAsync(TimeSpan.FromSeconds(15));
+                var audioReconnect = await AudioConnectionController.ConnectAsync();
+                EnsureAudioSwitchSucceeded(audioReconnect, phase);
+                EnsureSafeAudioConnected(phase);
+                checkpoints.Add(CaptureIntegratedCheckpoint(phase, sent));
+            }
+            catch (Exception ex)
+            {
+                error = ex.ToString();
+                allSucceeded = false;
+            }
+            finally
+            {
+                if (bridge is not null)
+                {
+                    try
+                    {
+                        await bridge.DisposeAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        error = error is null ? ex.ToString() : error + Environment.NewLine + ex;
+                        allSucceeded = false;
+                    }
+                }
+
+            }
+
+            results.Add(new
+            {
+                Cycle = cycle,
+                Success = error is null,
+                LastPhase = phase,
+                MessagesSent = sent,
+                ElapsedMilliseconds = (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
+                Checkpoints = checkpoints,
+                Error = error
+            });
+
+            if (error is not null)
+                break;
+        }
+
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            Success = allSucceeded && results.Count == requestedCycles,
+            RequestedCycles = requestedCycles,
+            CompletedCycles = results.Count,
+            Results = results,
+            DiagnosticSession = DiagnosticTrace.SessionId,
+            DiagnosticLog = DiagnosticTrace.CurrentPath
+        }));
+
+        return allSucceeded && results.Count == requestedCycles ? 0 : 1;
+    }
+
+    private static async Task SendMidiSelfTestNoteAsync(
+        WinMmMidiOutput output,
+        Func<int> sentCount,
+        int expectedSentMessages)
+    {
+        output.Send([0x90, 0x3C, 0x08]);
+        await Task.Delay(TimeSpan.FromMilliseconds(120));
+        output.Send([0x80, 0x3C, 0x00]);
+        output.Send([0xB0, 0x7B, 0x00]);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (sentCount() >= expectedSentMessages)
+                return;
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+        }
+
+        throw new TimeoutException(
+            $"Only {sentCount()} of {expectedSentMessages} expected BLE-MIDI safety messages were sent within 5 seconds.");
+    }
+
+    private static async Task WaitForMidiAdvertisementAsync(TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        _ = await MidiBridgeEngine.FindAdvertisingWuBt10Async(timeout, cancellation.Token);
+    }
+
+    private static void EnsureAudioSwitchSucceeded(AudioSwitchResult result, string phase)
+    {
+        if (!result.Success)
+            throw new InvalidOperationException($"{phase}: {result.Message}");
+    }
+
+    private static void EnsureSafeAudioConnected(string phase)
+    {
+        var activeIds = RepairEngine.ActiveAudioEndpointIds();
+        var transportConnected = BluetoothNative.FindWuBt10AudioDevices().Any(device => device.Connected);
+        var safeVolume = activeIds.Length == 1
+            && AudioEndpointNative.TryGetVolume(activeIds[0], out var volume)
+            && volume <= RepairEngine.SafeVolume + 0.005f;
+        if (activeIds.Length != 1 || !transportConnected || !safeVolume)
+        {
+            throw new InvalidOperationException(
+                $"{phase}: Audio verification failed (active endpoints: {activeIds.Length}, transport connected: {transportConnected}, safe volume: {safeVolume}).");
+        }
+    }
+
+    private static object CaptureIntegratedCheckpoint(string phase, int messagesSent)
+    {
+        var activeIds = RepairEngine.ActiveAudioEndpointIds();
+        float? volumePercent = null;
+        if (activeIds.Length == 1 && AudioEndpointNative.TryGetVolume(activeIds[0], out var volume))
+            volumePercent = volume * 100;
+
+        return new
+        {
+            Phase = phase,
+            AudioEndpointActive = activeIds.Length == 1,
+            AudioTransportConnected = BluetoothNative.FindWuBt10AudioDevices().Any(device => device.Connected),
+            VolumePercent = volumePercent,
+            MidiMessagesSent = messagesSent
+        };
     }
 
     private static string? ArgumentValue(string[] args, string name)

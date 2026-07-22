@@ -17,12 +17,10 @@ internal sealed class MainForm : Form
     private readonly Label _statusMark = new();
     private readonly Button _repairButton = new();
     private readonly Button _audioConnectButton = new();
-    private readonly Button _testSoundButton = new();
-    private readonly Button _soundButton = new();
     private readonly Button _supportButton = new();
     private readonly Button _logButton = new();
     private readonly ProgressBar _progress = new();
-    private readonly MidiBridgeEngine _midiBridge = new();
+    private readonly MidiBridgeEngine _midiBridge;
     private readonly Label _midiStatusTitle = new();
     private readonly Label _midiStatusMessage = new();
     private readonly Label _midiStatusMark = new();
@@ -35,10 +33,13 @@ internal sealed class MainForm : Form
 
     internal MainForm()
     {
+        _midiBridge = new MidiBridgeEngine(
+            maintainConnection: true,
+            afterMaintainConnection: ReleaseAudioForMidiHandoffAsync);
         Text = "WU-BT10 Windows Fix";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(720, 640);
-        ClientSize = new Size(780, 680);
+        MinimumSize = new Size(680, 540);
+        ClientSize = new Size(760, 600);
         BackColor = SoftBackground;
         Font = new Font("Segoe UI", 10F);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -61,15 +62,15 @@ internal sealed class MainForm : Form
         var header = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 120,
+            Height = 108,
             BackColor = Navy,
-            Padding = new Padding(28, 18, 28, 16)
+            Padding = new Padding(28, 16, 28, 14)
         };
 
         var logo = new PictureBox
         {
-            Location = new Point(28, 18),
-            Size = new Size(82, 82),
+            Location = new Point(28, 14),
+            Size = new Size(78, 78),
             SizeMode = PictureBoxSizeMode.Zoom,
             Image = LoadLogo(),
             AccessibleName = "Wireless piano connection icon"
@@ -77,20 +78,20 @@ internal sealed class MainForm : Form
 
         var title = new Label
         {
-            Text = "WU-BT10 Windows Fix",
+            Text = "WU-BT10 Audio / MIDI",
             ForeColor = Color.White,
             Font = new Font("Segoe UI Semibold", 20F),
             AutoSize = true,
-            Location = new Point(126, 27)
+            Location = new Point(124, 22)
         };
 
         var subtitle = new Label
         {
-            Text = "Repair Bluetooth audio and bridge low-latency MIDI",
+            Text = "One safe control for your Casio PX-S1100",
             ForeColor = Color.FromArgb(203, 220, 239),
             Font = new Font("Segoe UI", 10.5F),
             AutoSize = true,
-            Location = new Point(130, 70)
+            Location = new Point(128, 64)
         };
 
         header.Controls.AddRange([logo, title, subtitle]);
@@ -98,14 +99,14 @@ internal sealed class MainForm : Form
         var content = new Panel
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(32, 28, 32, 22),
+            Padding = new Padding(32, 30, 32, 22),
             AutoScroll = true
         };
 
         var statusCard = new Panel
         {
-            Location = new Point(32, 28),
-            Size = new Size(696, 126),
+            Location = new Point(32, 30),
+            Size = new Size(676, 142),
             BackColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Left
@@ -117,89 +118,73 @@ internal sealed class MainForm : Form
         _statusMark.AutoSize = true;
         _statusMark.Location = new Point(22, 26);
 
-        _statusTitle.Text = "Checking Windows audio";
+        _statusTitle.Text = "Checking WU-BT10";
         _statusTitle.Font = new Font("Segoe UI Semibold", 13F);
         _statusTitle.ForeColor = Navy;
         _statusTitle.AutoSize = false;
         _statusTitle.Location = new Point(72, 22);
-        _statusTitle.Size = new Size(590, 30);
+        _statusTitle.Size = new Size(565, 30);
 
-        _statusMessage.Text = "Looking for WU-BT10 AUDIO…";
+        _statusMessage.Text = "Checking Audio and MIDI availability…";
         _statusMessage.ForeColor = Color.FromArgb(70, 79, 92);
         _statusMessage.AutoSize = false;
         _statusMessage.Location = new Point(75, 56);
-        _statusMessage.Size = new Size(585, 55);
+        _statusMessage.Size = new Size(555, 68);
 
         statusCard.Controls.AddRange([_statusMark, _statusTitle, _statusMessage]);
 
-        _progress.Location = new Point(32, 169);
-        _progress.Size = new Size(696, 7);
+        _progress.Location = new Point(32, 184);
+        _progress.Size = new Size(676, 7);
         _progress.Style = ProgressBarStyle.Marquee;
         _progress.MarqueeAnimationSpeed = 25;
         _progress.Anchor = AnchorStyles.Top | AnchorStyles.Left;
 
-        _audioConnectButton.Text = "Connect Audio in Windows";
-        _audioConnectButton.Font = new Font("Segoe UI Semibold", 10.5F);
+        _audioConnectButton.Text = "Connect Audio";
+        _audioConnectButton.Font = new Font("Segoe UI Semibold", 14F);
         _audioConnectButton.BackColor = Cyan;
         _audioConnectButton.ForeColor = Color.White;
         _audioConnectButton.FlatStyle = FlatStyle.Flat;
         _audioConnectButton.FlatAppearance.BorderSize = 0;
-        _audioConnectButton.Location = new Point(32, 196);
-        _audioConnectButton.Size = new Size(196, 44);
-        _audioConnectButton.Click += async (_, _) => await ConnectAudioAsync();
+        _audioConnectButton.Location = new Point(32, 218);
+        _audioConnectButton.Size = new Size(676, 60);
+        _audioConnectButton.Click += async (_, _) => await ToggleModeAsync();
 
         _repairButton.Text = "Emergency: re-enable device";
-        _repairButton.Font = new Font("Segoe UI Semibold", 10.5F);
-        _repairButton.BackColor = Cyan;
-        _repairButton.ForeColor = Color.White;
+        _repairButton.Font = new Font("Segoe UI", 9F);
+        _repairButton.BackColor = Color.Transparent;
+        _repairButton.ForeColor = Color.FromArgb(92, 101, 114);
         _repairButton.FlatStyle = FlatStyle.Flat;
-        _repairButton.FlatAppearance.BorderSize = 0;
-        _repairButton.Location = new Point(240, 196);
-        _repairButton.Size = new Size(210, 44);
+        _repairButton.FlatAppearance.BorderColor = Color.FromArgb(208, 213, 220);
+        _repairButton.Location = new Point(448, 384);
+        _repairButton.Size = new Size(260, 32);
         _repairButton.Visible = false;
         _repairButton.Click += async (_, _) => await RepairAsync();
 
-        _testSoundButton.Text = "Test sound";
-        _testSoundButton.Location = new Point(462, 196);
-        _testSoundButton.Size = new Size(110, 44);
-        _testSoundButton.Enabled = false;
-        _testSoundButton.Click += async (_, _) => await PlayTestSoundAsync();
+        _supportButton.Visible = false;
 
-        _soundButton.Text = "Set volume 20%";
-        _soundButton.Location = new Point(584, 196);
-        _soundButton.Size = new Size(144, 44);
-        _soundButton.Enabled = false;
-        _soundButton.Click += async (_, _) => await SetSafeVolumeAsync();
-
-        _supportButton.Text = "Support development";
-        _supportButton.Location = new Point(196, 256);
-        _supportButton.Size = new Size(184, 44);
-        _supportButton.Visible = SupportOptions.SupportUrl is not null;
-        _supportButton.Click += (_, _) => OpenUrl(SupportOptions.SupportUrl!);
-
-        _logButton.Text = "View diagnostic log";
+        _logButton.Text = "Diagnostics";
         _logButton.FlatStyle = FlatStyle.Flat;
         _logButton.ForeColor = Navy;
-        _logButton.Location = new Point(32, 256);
-        _logButton.Size = new Size(148, 34);
+        _logButton.Location = new Point(32, 384);
+        _logButton.Size = new Size(112, 32);
         _logButton.Click += (_, _) => OpenLog();
 
-        var persistenceTitle = new Label
+        var modeExplanation = new Label
         {
-            Text = "Standard-user switching — reversible Intel compatibility mode",
+            Text = "The button switches the complete connection safely",
             Font = new Font("Segoe UI Semibold", 11.5F),
             ForeColor = Navy,
             AutoSize = true,
-            Location = new Point(32, 315)
+            Location = new Point(32, 310)
         };
 
-        var persistenceText = new Label
+        var modeDetails = new Label
         {
-            Text = "Diagnosis, sound testing, and normal Audio/MIDI switching need no administrator rights. If Intel offload connects without playback, one confirmed UAC action enables the tested compatibility mode. It persists across restarts, and a separate button restores Intel. No Bluetooth profile, pairing, volume, or audio-service reset is used.",
+            Text = "Audio is always limited to 20%. When switching to MIDI, the app prepares the BLE session before releasing Audio so the piano stays available. No Windows Settings, test tone, pairing change, or administrator approval is used during normal switching.",
             ForeColor = Color.FromArgb(70, 79, 92),
             AutoSize = false,
-            Location = new Point(32, 345),
-            Size = new Size(680, 72),
+            Location = new Point(32, 340),
+            Size = new Size(676, 58),
             Anchor = AnchorStyles.Top | AnchorStyles.Left
         };
 
@@ -208,7 +193,7 @@ internal sealed class MainForm : Form
             Text = $"Open source • No network access during repair • Version {Application.ProductVersion.Split('+')[0]}",
             ForeColor = Color.FromArgb(112, 120, 132),
             AutoSize = true,
-            Location = new Point(32, 433)
+            Location = new Point(32, 438)
         };
 
         content.Controls.AddRange([
@@ -216,32 +201,14 @@ internal sealed class MainForm : Form
             _progress,
             _audioConnectButton,
             _repairButton,
-            _testSoundButton,
-            _soundButton,
             _supportButton,
             _logButton,
-            persistenceTitle,
-            persistenceText,
+            modeExplanation,
+            modeDetails,
             privacyText
         ]);
 
-        var tabs = new TabControl
-        {
-            Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI Semibold", 14F),
-            SizeMode = TabSizeMode.Fixed,
-            ItemSize = new Size(150, 52)
-        };
-        var audioPage = new TabPage("Audio")
-        {
-            BackColor = SoftBackground,
-            Font = new Font("Segoe UI", 10F)
-        };
-        audioPage.Controls.Add(content);
-        tabs.TabPages.Add(audioPage);
-        tabs.TabPages.Add(BuildMidiPage());
-
-        Controls.Add(tabs);
+        Controls.Add(content);
         Controls.Add(header);
     }
 
@@ -346,19 +313,7 @@ internal sealed class MainForm : Form
             }
             else
             {
-                if (await Task.Run(RepairEngine.IsAudioEndpointActive))
-                {
-                    var openSettings = MessageBox.Show(
-                        this,
-                        "WU-BT10 AUDIO is still active. Casio warns that simultaneous Audio and MIDI can be unstable.\n\nDisconnect WU-BT10 AUDIO in Windows Bluetooth settings, then press Connect MIDI again. Open Bluetooth settings now?",
-                        "Disconnect Audio before MIDI",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Information);
-                    if (openSettings == DialogResult.Yes)
-                        OpenUrl("ms-settings:bluetooth");
-                    return;
-                }
-
+                await Task.Run(() => RepairEngine.TraceAudioTransitionSnapshot("midi-start-requested"));
                 _midiReceivedCount = 0;
                 _midiSentCount = 0;
                 SetMidiPresentation("Starting Bluetooth MIDI", "Preparing the virtual port and waiting for a live WU-BT10 MIDI signal…", Cyan, true);
@@ -422,8 +377,12 @@ internal sealed class MainForm : Form
     {
         if (IsDisposed || count % 10 != 1)
             return;
-        BeginInvoke(() => _midiStatusTitle.Text =
-            $"WU-BT10 MIDI is connected — {_midiReceivedCount:N0} in / {_midiSentCount:N0} out");
+        BeginInvoke(() =>
+        {
+            var title = $"MIDI mode — {_midiReceivedCount:N0} in / {_midiSentCount:N0} out";
+            _midiStatusTitle.Text = title;
+            _statusTitle.Text = title;
+        });
     }
 
     private void SetMidiPresentation(string title, string message, Color color, bool running)
@@ -433,6 +392,12 @@ internal sealed class MainForm : Form
         _midiStatusMark.ForeColor = color;
         _midiButton.Text = running ? "Disconnect WU-BT10 MIDI" : "Connect WU-BT10 MIDI";
         _midiButton.BackColor = running ? Color.FromArgb(75, 85, 99) : Cyan;
+        _statusTitle.Text = title;
+        _statusMessage.Text = message;
+        _statusMark.ForeColor = color;
+        _progress.Visible = color == Cyan || color == Amber && running;
+        _audioConnectButton.Text = running ? "Switch to Audio" : "Connect Audio";
+        _audioConnectButton.BackColor = Cyan;
     }
 
     protected override async void OnFormClosing(FormClosingEventArgs e)
@@ -556,11 +521,10 @@ internal sealed class MainForm : Form
 
         if (enableCompatibility && !result.EndpointPresent)
         {
-            OpenUrl("ms-settings:bluetooth");
             SetBusy(
                 false,
                 "Audio compatibility mode is active",
-                "In Windows Bluetooth settings, disconnect WU-BT10 AUDIO if shown as Connected, then press Connect. Return here to test sound.",
+                "Press Connect WU-BT10 AUDIO. The app will establish the A2DP service and set its volume to 20%.",
                 Green);
             return;
         }
@@ -568,97 +532,121 @@ internal sealed class MainForm : Form
         await RefreshDiagnosisAsync();
     }
 
-    private async Task ConnectAudioAsync()
+    private async Task ReleaseAudioForMidiHandoffAsync(CancellationToken cancellationToken)
     {
-        DiagnosticTrace.Write("ui", "audio-connect-clicked", new Dictionary<string, object?>
+        if (!await Task.Run(RepairEngine.IsAudioEndpointActive, cancellationToken))
+            return;
+
+        DiagnosticTrace.Write("ui", "coordinated-audio-release-started");
+        var released = await AudioConnectionController.DisconnectAsync(cancellationToken);
+        if (!released.Success)
+            throw new InvalidOperationException(released.Message);
+        DiagnosticTrace.Write("ui", "coordinated-audio-release-completed");
+    }
+
+    private async Task ToggleModeAsync()
+    {
+        DiagnosticTrace.Write("ui", "primary-mode-toggle-clicked", new Dictionary<string, object?>
         {
             ["midiIsRunning"] = _midiBridge.IsRunning,
-            ["midiState"] = _midiBridge.State
+            ["midiState"] = _midiBridge.State,
+            ["audioEndpointActive"] = RepairEngine.IsAudioEndpointActive()
         });
         _audioConnectButton.Enabled = false;
         try
         {
             if (_midiBridge.IsRunning)
+            {
+                SetBusy(true, "Switching to Audio", "Releasing MIDI cleanly before reconnecting the Audio profile…");
                 await _midiBridge.StopAsync();
 
-            OpenUrl("ms-settings:bluetooth");
-            DiagnosticTrace.Write("ui", "bluetooth-settings-opened-for-audio");
-            SetBusy(false,
-                "Connect WU-BT10 AUDIO in Windows",
-                "Select WU-BT10 AUDIO in Bluetooth settings. Return here afterward; diagnosis will detect the playback endpoint without changing its volume.",
-                Cyan);
+                using var releaseTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                try
+                {
+                    _ = await MidiBridgeEngine.FindAdvertisingWuBt10Async(
+                        TimeSpan.FromSeconds(15),
+                        releaseTimeout.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw new InvalidOperationException(
+                        "The piano did not become available after MIDI stopped. Turn on its wireless function and try again.");
+                }
+
+                var connectedAfterMidi = await AudioConnectionController.ConnectAsync();
+                if (!connectedAfterMidi.Success)
+                    throw new InvalidOperationException(connectedAfterMidi.Message);
+
+                await RefreshDiagnosisAsync();
+                SetBusy(false, "Audio mode is ready", "WU-BT10 AUDIO is connected and Windows volume is verified at 20%.", Green);
+                return;
+            }
+
+            if (await Task.Run(RepairEngine.IsAudioEndpointActive))
+            {
+                _midiReceivedCount = 0;
+                _midiSentCount = 0;
+                SetBusy(true, "Switching to MIDI", "Preparing a persistent BLE session before Audio is released…");
+                await _midiBridge.StartAsync();
+                SetMidiPresentation(
+                    "MIDI mode is ready",
+                    $"Select “{WindowsMidiLoopback.PortName}” in your MIDI application.",
+                    Green,
+                    true);
+                return;
+            }
+
+            SetBusy(true, "Connecting Audio", "Requesting WU-BT10 AUDIO and enforcing the 20% safety limit…");
+            var connected = await AudioConnectionController.ConnectAsync();
+            if (!connected.Success)
+                throw new InvalidOperationException(connected.Message);
+
+            await RefreshDiagnosisAsync();
+            SetBusy(false, "Audio mode is ready", "WU-BT10 AUDIO is connected and Windows volume is verified at 20%.", Green);
         }
         catch (Exception ex)
         {
-            DiagnosticTrace.Write("ui", "audio-switch-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
-            RepairLog.Write("Could not stop MIDI before opening Audio settings: " + ex);
+            DiagnosticTrace.Write("ui", "mode-switch-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
+            RepairLog.Write("Could not switch WU-BT10 mode: " + ex);
             SetBusy(false,
-                "Could not switch safely to Audio",
-                "The MIDI bridge did not stop cleanly, so Windows Bluetooth settings were not opened. Try Disconnect MIDI again, then retry Audio.",
+                "Could not complete the switch",
+                ex.Message,
                 Color.Firebrick);
         }
         finally
         {
             _audioConnectButton.Enabled = true;
+            UpdatePrimaryAction();
         }
     }
 
-    private async Task SetSafeVolumeAsync()
+    private void UpdatePrimaryAction()
     {
-        SetBusy(true, "Setting WU-BT10 AUDIO volume", "Applying 20% only to the active WU-BT10 playback endpoint…");
-        try
+        if (_midiBridge.IsRunning)
         {
-            var result = await Task.Run(() => RepairEngine.SetSafeVolume());
-            if (!result.Success)
-            {
-                SetBusy(false, "WU-BT10 volume was not changed", result.Message, Color.Firebrick);
-                return;
-            }
+            _audioConnectButton.Text = "Switch to Audio";
+            _audioConnectButton.BackColor = Cyan;
+            return;
+        }
 
-            await RefreshDiagnosisAsync();
-        }
-        catch (Exception ex)
-        {
-            DiagnosticTrace.Write("ui", "safe-volume-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
-            RepairLog.Write("WU-BT10 volume action failed: " + ex);
-            SetBusy(false, "WU-BT10 volume was not changed", "Windows could not apply the requested volume. View the diagnostic log for details.", Color.Firebrick);
-        }
-    }
-
-    private async Task PlayTestSoundAsync()
-    {
-        SetBusy(true, "Testing WU-BT10 AUDIO", "Sending a short, quiet signal directly to the WU-BT10 playback endpoint…");
-        try
-        {
-            var result = await AudioPlaybackTester.PlayAsync();
-            SetBusy(
-                false,
-                result.Success ? "WU-BT10 playback test completed" : "WU-BT10 playback test failed",
-                result.Message,
-                result.Success ? Green : Color.Firebrick);
-        }
-        catch (Exception ex)
-        {
-            RepairLog.Write("WU-BT10 playback test failed: " + ex);
-            SetBusy(false, "WU-BT10 playback test failed", ex.Message, Color.Firebrick);
-        }
-        finally
-        {
-            try
-            {
-                var endpointActive = await Task.Run(RepairEngine.IsAudioEndpointActive);
-                _testSoundButton.Enabled = endpointActive;
-                _soundButton.Enabled = endpointActive;
-            }
-            catch (Exception ex)
-            {
-                RepairLog.Write("Could not refresh Audio controls after playback test: " + ex.Message);
-            }
-        }
+        _audioConnectButton.Text = RepairEngine.IsAudioEndpointActive()
+            ? "Switch to MIDI"
+            : "Connect Audio";
+        _audioConnectButton.BackColor = Cyan;
     }
 
     private void ApplyDiagnosis(DiagnosticResult diagnosis)
     {
+        if (_midiBridge.IsRunning)
+        {
+            SetMidiPresentation(
+                "MIDI mode is ready",
+                $"Select “{WindowsMidiLoopback.PortName}” in your MIDI application. {_midiReceivedCount:N0} messages received, {_midiSentCount:N0} sent.",
+                Green,
+                true);
+            return;
+        }
+
         _progress.Visible = false;
         _statusTitle.Text = diagnosis.Title;
         _statusMessage.Text = diagnosis.Message;
@@ -669,7 +657,7 @@ internal sealed class MainForm : Form
             DeviceReadiness.ReadyCompatibility => (Green, true, true),
             DeviceReadiness.ReadyDisconnected => (Green, false, false),
             DeviceReadiness.NeedsRepair => (Amber, true, false),
-            DeviceReadiness.NeedsCompatibilityMode => (Amber, true, false),
+            DeviceReadiness.NeedsCompatibilityMode => (Amber, false, false),
             DeviceReadiness.CompatibilityDisconnected => (Green, true, false),
             DeviceReadiness.ManualAction => (Amber, false, false),
             DeviceReadiness.NotPaired => (Amber, false, false),
@@ -680,20 +668,20 @@ internal sealed class MainForm : Form
 
         _statusMark.ForeColor = presentation.Item1;
         _audioConnectButton.Enabled = true;
+        _audioConnectButton.Text = presentation.Item3
+            ? "Switch to MIDI"
+            : "Connect Audio";
         _audioConnectButton.BackColor = _audioConnectButton.Enabled ? Cyan : Color.FromArgb(208, 213, 220);
         _audioConnectButton.ForeColor = _audioConnectButton.Enabled ? Color.White : Color.FromArgb(105, 112, 122);
         _repairButton.Enabled = presentation.Item2;
         _repairButton.Text = diagnosis.State switch
         {
-            DeviceReadiness.NeedsCompatibilityMode => "Enable compatibility mode",
-            DeviceReadiness.ReadyCompatibility or DeviceReadiness.CompatibilityDisconnected => "Restore Intel default mode",
-            _ => "Emergency: re-enable device"
+            DeviceReadiness.ReadyCompatibility or DeviceReadiness.CompatibilityDisconnected => "Advanced: restore Intel default",
+            _ => "Advanced recovery: re-enable device"
         };
         _repairButton.Visible = presentation.Item2;
-        _repairButton.BackColor = presentation.Item2 ? Cyan : Color.FromArgb(208, 213, 220);
-        _repairButton.ForeColor = presentation.Item2 ? Color.White : Color.FromArgb(105, 112, 122);
-        _testSoundButton.Enabled = presentation.Item3;
-        _soundButton.Enabled = presentation.Item3;
+        _repairButton.BackColor = Color.Transparent;
+        _repairButton.ForeColor = presentation.Item2 ? Color.FromArgb(92, 101, 114) : Color.FromArgb(150, 156, 164);
     }
 
     private void SetBusy(bool busy, string title, string message, Color? color = null)
@@ -705,10 +693,8 @@ internal sealed class MainForm : Form
         _statusMark.ForeColor = color ?? Cyan;
         _repairButton.Enabled = !busy;
         _audioConnectButton.Enabled = !busy;
-        _repairButton.BackColor = busy ? Color.FromArgb(208, 213, 220) : Cyan;
-        _repairButton.ForeColor = busy ? Color.FromArgb(105, 112, 122) : Color.White;
-        _testSoundButton.Enabled = false;
-        _soundButton.Enabled = false;
+        _repairButton.BackColor = Color.Transparent;
+        _repairButton.ForeColor = busy ? Color.FromArgb(150, 156, 164) : Color.FromArgb(92, 101, 114);
     }
 
     private static Bitmap? LoadLogo()

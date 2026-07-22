@@ -26,6 +26,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     private readonly BleMidiParser _parser = new();
     private readonly object _parserGate = new();
     private readonly bool _maintainConnection;
+    private readonly Func<CancellationToken, Task>? _afterMaintainConnection;
     private WindowsMidiLoopback? _loopback;
     private WinMmMidiOutput? _midiOutput;
     private WinMmMidiInput? _midiInput;
@@ -57,10 +58,16 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     internal bool IsConnected { get; private set; }
     internal MidiBridgeState State { get; private set; } = MidiBridgeState.Stopped;
 
-    internal MidiBridgeEngine(bool maintainConnection = false)
+    internal MidiBridgeEngine(
+        bool maintainConnection = false,
+        Func<CancellationToken, Task>? afterMaintainConnection = null)
     {
         _maintainConnection = maintainConnection;
-        Trace("engine-created", ("maintainConnection", _maintainConnection));
+        _afterMaintainConnection = afterMaintainConnection;
+        Trace(
+            "engine-created",
+            ("maintainConnection", _maintainConnection),
+            ("hasAfterMaintainConnectionHandoff", _afterMaintainConnection is not null));
     }
 
     internal async Task StartAsync(CancellationToken cancellationToken = default)
@@ -253,6 +260,16 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             }
             await Task.Delay(350, cancellationToken);
             EnsureCurrentRun(generation, cancellationToken);
+
+            if (_afterMaintainConnection is not null)
+            {
+                Trace("gatt-handoff-started");
+                await _afterMaintainConnection(cancellationToken);
+                EnsureCurrentRun(generation, cancellationToken);
+                Trace("gatt-handoff-completed");
+                await Task.Delay(350, cancellationToken);
+                EnsureCurrentRun(generation, cancellationToken);
+            }
 
             StatusChanged?.Invoke("Opening the BLE-MIDI service…");
             var serviceResult = await device.GetGattServicesForUuidAsync(MidiServiceUuid, BluetoothCacheMode.Uncached);

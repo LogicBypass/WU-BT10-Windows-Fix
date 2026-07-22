@@ -9,6 +9,8 @@ internal static class RepairEngine
     private const string DisabledBluetoothAudioQuery = "$d=Get-PnpDevice -Class MEDIA -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'INTELAUDIO*' -and $_.FriendlyName -like '*Bluetooth*Audio*' -and ($_.Problem -eq 22 -or [string]$_.Problem -eq 'CM_PROB_DISABLED') }; $d | ForEach-Object InstanceId";
     private const string HealthyIntelBluetoothAudioQuery = "$d=Get-PnpDevice -PresentOnly -Class MEDIA -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'INTELAUDIO*' -and $_.FriendlyName -like '*Bluetooth*Audio*' -and ($_.Problem -eq 0 -or [string]$_.Problem -eq 'CM_PROB_NONE') }; $d | ForEach-Object InstanceId";
     private const string HealthyWuA2dpQuery = "$d=Get-PnpDevice -PresentOnly -Class MEDIA -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'BTHENUM\\{0000110B-0000-1000-8000-00805F9B34FB}*' -and $_.FriendlyName -eq 'WU-BT10 AUDIO' -and ($_.Problem -eq 0 -or [string]$_.Problem -eq 'CM_PROB_NONE') }; $d | ForEach-Object InstanceId";
+    private const string AnyWuA2dpQuery = "$d=Get-PnpDevice -Class MEDIA -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'BTHENUM\\{0000110B-0000-1000-8000-00805F9B34FB}*' -and $_.FriendlyName -eq 'WU-BT10 AUDIO' }; $d | ForEach-Object InstanceId";
+    private const string WuA2dpRebootRequiredQuery = "$d=Get-PnpDevice -Class MEDIA -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'BTHENUM\\{0000110B-0000-1000-8000-00805F9B34FB}*' -and $_.FriendlyName -eq 'WU-BT10 AUDIO' }; $r=$d | ForEach-Object { (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_IsRebootRequired' -ErrorAction SilentlyContinue).Data }; if ($r -contains $true) { 'True' } else { 'False' }";
 
     internal static DiagnosticResult Diagnose()
     {
@@ -46,7 +48,7 @@ internal static class RepairEngine
                     "Audio compatibility mode is active",
                     devices.Count == 0
                         ? "Pair WU-BT10 AUDIO in Windows. Intel Bluetooth-audio offload remains disabled only for this compatibility mode."
-                        : "Open Windows Bluetooth settings and connect WU-BT10 AUDIO. This tested mode uses the standard Windows A2DP path and remains active across Audio/MIDI switches."),
+                        : "Press Connect WU-BT10 AUDIO. The app restarts only the preserved A2DP device node, verifies 20%, and plays no sound."),
                     disabledAudioDevices.Length,
                     devices.Count,
                     false,
@@ -83,7 +85,7 @@ internal static class RepairEngine
                 return TraceDiagnosis(new(
                     DeviceReadiness.ReadyDisconnected,
                     "WU-BT10 AUDIO is paired and currently disconnected",
-                    "Open Windows Bluetooth settings and connect WU-BT10 AUDIO. If Windows connects without creating playback, enable the tested compatibility mode."),
+                    "Press Connect WU-BT10 AUDIO. The app will connect it directly and apply the 20% safety limit."),
                     0,
                     devices.Count,
                     false,
@@ -110,8 +112,8 @@ internal static class RepairEngine
                 DeviceReadiness.ManualAction,
                 bluetoothConnected
                     ? "WU-BT10 is connected, but Windows has no playback output"
-                    : "WU-BT10 AUDIO needs to be reconnected in Windows",
-                "Open Bluetooth settings and reconnect the Audio device. The app will not reset Bluetooth profiles or restart Windows audio services."),
+                    : "WU-BT10 AUDIO needs to be reconnected",
+                "Press Connect WU-BT10 AUDIO. The app will preserve the existing playback endpoint, verify 20%, and play no test tone."),
                 0,
                 devices.Count,
                 false,
@@ -138,7 +140,7 @@ internal static class RepairEngine
         var mode = compatibilityModeActive
             ? " Compatibility mode keeps Intel Bluetooth-audio offload disabled until you choose Restore Intel default mode."
             : string.Empty;
-        return volume + " Diagnosis changed nothing." + mode + " Use the explicit 20% button only if wanted.";
+        return volume + " Diagnosis changed nothing." + mode + " The Connect flow automatically enforces the 20% safety limit.";
     }
 
     private static DiagnosticResult TraceDiagnosis(
@@ -382,6 +384,71 @@ internal static class RepairEngine
 
     internal static bool IsAudioEndpointActive() => EndpointReady();
 
+    internal static string[] ActiveAudioEndpointIds() =>
+        RegisteredEndpointIds().Where(AudioEndpointNative.IsActive).ToArray();
+
+    internal static string[] AudioEndpointIds() => RegisteredEndpointIds();
+
+    internal static AudioTransitionSnapshot CaptureAudioTransitionSnapshot()
+    {
+        var audioDevices = BluetoothNative.FindWuBt10AudioDevices();
+        var endpointIds = RegisteredEndpointIds();
+        var activeEndpointIds = endpointIds.Where(AudioEndpointNative.IsActive).ToArray();
+        float? volume = null;
+        if (activeEndpointIds.Length == 1
+            && AudioEndpointNative.TryGetVolume(activeEndpointIds[0], out var currentVolume))
+        {
+            volume = currentVolume;
+        }
+
+        var disabledIntelIds = DisabledBluetoothAudioDeviceIds();
+        var compatibilityState = CompatibilityModeStore.Load();
+        var anyA2dpIds = ExpectedDeviceIds(ProcessRunner.PowerShell(AnyWuA2dpQuery), "BTHENUM\\{0000110B-0000-1000-8000-00805F9B34FB}");
+        var rebootRequired = bool.TryParse(
+            ProcessRunner.PowerShell(WuA2dpRebootRequiredQuery).Trim(),
+            out var parsedRebootRequired)
+            && parsedRebootRequired;
+
+        return new(
+            DateTimeOffset.UtcNow,
+            audioDevices.Count,
+            audioDevices.Count(device => device.Connected),
+            endpointIds,
+            activeEndpointIds,
+            volume,
+            anyA2dpIds,
+            HealthyWuA2dpDeviceIds(),
+            CompatibilityModeStore.Matches(compatibilityState, disabledIntelIds),
+            rebootRequired);
+    }
+
+    internal static void TraceAudioTransitionSnapshot(string eventName)
+    {
+        try
+        {
+            var snapshot = CaptureAudioTransitionSnapshot();
+            DiagnosticTrace.Write("audio-transition", eventName, new Dictionary<string, object?>
+            {
+                ["pairedAudioRecords"] = snapshot.PairedAudioRecords,
+                ["connectedAudioRecords"] = snapshot.ConnectedAudioRecords,
+                ["endpointIds"] = snapshot.EndpointIds,
+                ["activeEndpointIds"] = snapshot.ActiveEndpointIds,
+                ["volumePercent"] = snapshot.Volume is null ? null : Math.Round(snapshot.Volume.Value * 100, 1),
+                ["a2dpDeviceIds"] = snapshot.A2dpDeviceIds,
+                ["healthyA2dpDeviceIds"] = snapshot.HealthyA2dpDeviceIds,
+                ["compatibilityModeActive"] = snapshot.CompatibilityModeActive,
+                ["a2dpRebootRequired"] = snapshot.A2dpRebootRequired
+            });
+        }
+        catch (Exception ex)
+        {
+            DiagnosticTrace.Write("audio-transition", eventName + "-snapshot-failed", new Dictionary<string, object?>
+            {
+                ["exception"] = ex.Message
+            });
+        }
+    }
+
     internal static RepairResult SetSafeVolume(string? successMessage = null)
     {
         var activeIds = RegisteredEndpointIds().Where(AudioEndpointNative.IsActive).ToArray();
@@ -413,3 +480,15 @@ internal static class RepairEngine
     private static bool IsAdministrator() =>
         new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
 }
+
+internal sealed record AudioTransitionSnapshot(
+    DateTimeOffset CapturedAtUtc,
+    int PairedAudioRecords,
+    int ConnectedAudioRecords,
+    string[] EndpointIds,
+    string[] ActiveEndpointIds,
+    float? Volume,
+    string[] A2dpDeviceIds,
+    string[] HealthyA2dpDeviceIds,
+    bool CompatibilityModeActive,
+    bool A2dpRebootRequired);

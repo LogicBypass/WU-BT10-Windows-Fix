@@ -1,8 +1,3 @@
-using Windows.Devices.Enumeration;
-using Windows.Media.Core;
-using Windows.Media.Devices;
-using Windows.Media.Playback;
-
 namespace WUBT10Fix;
 
 internal sealed record AudioPlaybackTestResult(
@@ -13,105 +8,91 @@ internal sealed record AudioPlaybackTestResult(
 
 internal static class AudioPlaybackTester
 {
-    internal static async Task<AudioPlaybackTestResult> PlayAsync(
-        TimeSpan? duration = null,
+    internal static async Task<AudioPlaybackTestResult> ActivateSilentlyPreservedEndpointAsync(
+        string pnpInstanceId,
+        TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)
     {
-        var devices = await DeviceInformation.FindAllAsync(MediaDevice.GetAudioRenderSelector());
-        var matches = devices
-            .Where(device => device.Name.Contains("WU-BT10 AUDIO", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        if (matches.Length != 1)
-        {
-            return new(
-                false,
-                $"Expected one active WU-BT10 playback device, but Windows returned {matches.Length}.");
-        }
+        const string pnpPrefix = "SWD\\MMDEVAPI\\";
+        if (!pnpInstanceId.StartsWith(pnpPrefix, StringComparison.OrdinalIgnoreCase))
+            return new(false, "The WU-BT10 endpoint ID is not a Windows audio endpoint.");
 
-        var device = matches[0];
-        var testDuration = duration ?? TimeSpan.FromMilliseconds(900);
-        var wavePath = Path.Combine(Path.GetTempPath(), $"wubt10-audio-test-{Guid.NewGuid():N}.wav");
+        var reconnect = AudioEndpointNative.RequestBluetoothAudioReconnect(pnpInstanceId);
+        DiagnosticTrace.Write("audio", "audio-driver-reconnect-requested", new Dictionary<string, object?>
+        {
+            ["endpointId"] = pnpInstanceId,
+            ["success"] = reconnect.Success,
+            ["status"] = $"0x{reconnect.Status:X8}",
+            ["filterDeviceId"] = reconnect.FilterDeviceId,
+            ["message"] = reconnect.Message
+        });
+        if (!reconnect.Success)
+            return new(false, reconnect.Message, "WU-BT10 AUDIO", pnpInstanceId);
+
+        var activationTimeout = timeout ?? TimeSpan.FromSeconds(30);
         try
         {
-            await File.WriteAllBytesAsync(wavePath, CreateTestWave(testDuration), cancellationToken);
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(wavePath);
-            using var source = MediaSource.CreateFromStorageFile(file);
-            using var player = new MediaPlayer
+            var deadline = DateTime.UtcNow + activationTimeout;
+            var nextReconnectAttempt = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (DateTime.UtcNow < deadline)
             {
-                AudioDevice = device,
-                AudioDeviceType = MediaPlayerAudioDeviceType.Multimedia,
-                Source = source,
-                Volume = 1.0
-            };
+                cancellationToken.ThrowIfCancellationRequested();
+                if (DateTime.UtcNow >= nextReconnectAttempt)
+                {
+                    var retry = AudioEndpointNative.RequestBluetoothAudioReconnect(pnpInstanceId);
+                    DiagnosticTrace.Write("audio", "audio-driver-reconnect-retried", new Dictionary<string, object?>
+                    {
+                        ["endpointId"] = pnpInstanceId,
+                        ["success"] = retry.Success,
+                        ["status"] = $"0x{retry.Status:X8}",
+                        ["filterDeviceId"] = retry.FilterDeviceId,
+                        ["message"] = retry.Message
+                    });
+                    nextReconnectAttempt = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+                }
 
-            var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            player.MediaEnded += (_, _) => completed.TrySetResult(true);
-            player.MediaFailed += (_, args) => completed.TrySetException(
-                new InvalidOperationException($"Windows playback failed: {args.Error} {args.ErrorMessage}"));
+                _ = AudioEndpointNative.SetVolume(pnpInstanceId, RepairEngine.SafeVolume);
+                if (AudioEndpointNative.IsActive(pnpInstanceId)
+                    && BluetoothNative.FindWuBt10AudioDevices().Any(item => item.Connected)
+                    && AudioEndpointNative.TryGetVolume(pnpInstanceId, out var volume)
+                    && volume <= RepairEngine.SafeVolume + 0.005f)
+                {
+                    return new(
+                        true,
+                        "Windows connected WU-BT10 AUDIO through its audio driver and verified the endpoint at 20% volume.",
+                        "WU-BT10 AUDIO",
+                        pnpInstanceId);
+                }
 
-            player.Play();
-            await completed.Task.WaitAsync(testDuration + TimeSpan.FromSeconds(8), cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken);
+            }
+
             return new(
-                true,
-                "Windows rendered the test signal through the WU-BT10 playback endpoint.",
-                device.Name,
-                device.Id);
+                false,
+                $"Windows did not activate WU-BT10 AUDIO within {activationTimeout.TotalSeconds:0} seconds. " +
+                "On the piano, hold FUNCTION and press C-sharp 1 to make Audio available, then try again. " +
+                "No audible test sound was played.",
+                "WU-BT10 AUDIO",
+                pnpInstanceId);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            return new(false, ex.Message, device.Name, device.Id);
-        }
-        finally
-        {
-            try
+            var message = string.IsNullOrWhiteSpace(ex.Message)
+                ? $"{ex.GetType().Name} (0x{ex.HResult:X8})"
+                : ex.Message;
+            DiagnosticTrace.Write("audio", "silent-activation-exception", new Dictionary<string, object?>
             {
-                File.Delete(wavePath);
-            }
-            catch
-            {
-                // A stale test wave contains only a short generated tone.
-            }
+                ["exception"] = ex.ToString(),
+                ["exceptionType"] = ex.GetType().FullName,
+                ["hresult"] = $"0x{ex.HResult:X8}",
+                ["message"] = message
+            });
+            return new(false, message, "WU-BT10 AUDIO", pnpInstanceId);
         }
     }
 
-    internal static byte[] CreateTestWave(TimeSpan duration)
-    {
-        const int sampleRate = 48000;
-        const short channels = 2;
-        const short bitsPerSample = 16;
-        const double frequency = 440.0;
-        const double amplitude = 0.08;
-
-        var sampleCount = Math.Max(1, checked((int)Math.Round(duration.TotalSeconds * sampleRate)));
-        var blockAlign = checked((short)(channels * bitsPerSample / 8));
-        var dataLength = checked(sampleCount * blockAlign);
-        using var stream = new MemoryStream(44 + dataLength);
-        using var writer = new BinaryWriter(stream);
-        writer.Write("RIFF"u8.ToArray());
-        writer.Write(36 + dataLength);
-        writer.Write("WAVE"u8.ToArray());
-        writer.Write("fmt "u8.ToArray());
-        writer.Write(16);
-        writer.Write((short)1);
-        writer.Write(channels);
-        writer.Write(sampleRate);
-        writer.Write(sampleRate * blockAlign);
-        writer.Write(blockAlign);
-        writer.Write(bitsPerSample);
-        writer.Write("data"u8.ToArray());
-        writer.Write(dataLength);
-
-        var fadeSamples = Math.Min(sampleCount / 2, sampleRate / 50);
-        for (var sample = 0; sample < sampleCount; sample++)
-        {
-            var fadeIn = fadeSamples == 0 ? 1.0 : Math.Min(1.0, sample / (double)fadeSamples);
-            var fadeOut = fadeSamples == 0 ? 1.0 : Math.Min(1.0, (sampleCount - 1 - sample) / (double)fadeSamples);
-            var value = checked((short)Math.Round(
-                short.MaxValue * amplitude * Math.Min(fadeIn, fadeOut) * Math.Sin(2 * Math.PI * frequency * sample / sampleRate)));
-            writer.Write(value);
-            writer.Write(value);
-        }
-
-        return stream.ToArray();
-    }
 }
