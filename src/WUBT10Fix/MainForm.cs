@@ -158,11 +158,11 @@ internal sealed class MainForm : Form
         _repairButton.Visible = false;
         _repairButton.Click += async (_, _) => await RepairAsync();
 
-        _soundButton.Text = "Open Sound Settings";
+        _soundButton.Text = "Set WU-BT10 to 20%";
         _soundButton.Location = new Point(488, 196);
         _soundButton.Size = new Size(190, 44);
         _soundButton.Enabled = false;
-        _soundButton.Click += (_, _) => OpenUrl("ms-settings:sound");
+        _soundButton.Click += async (_, _) => await SetSafeVolumeAsync();
 
         _supportButton.Text = "Support development";
         _supportButton.Location = new Point(196, 256);
@@ -188,7 +188,7 @@ internal sealed class MainForm : Form
 
         var persistenceText = new Label
         {
-            Text = "The app keeps WU-BT10 AUDIO at 20% when its endpoint is active. Repair is enable-only: it can restore a disabled Intel Bluetooth Audio device, but never disables hardware, toggles Bluetooth profiles, or restarts Windows audio services.",
+            Text = "Diagnosis is read-only. The app sets WU-BT10 AUDIO to 20% only when you press the volume button. Repair is enable-only: it can restore a disabled Intel Bluetooth Audio device, but never disables hardware, toggles Bluetooth profiles, or restarts Windows audio services.",
             ForeColor = Color.FromArgb(70, 79, 92),
             AutoSize = false,
             Location = new Point(32, 345),
@@ -338,6 +338,19 @@ internal sealed class MainForm : Form
             }
             else
             {
+                if (await Task.Run(RepairEngine.IsAudioEndpointActive))
+                {
+                    var openSettings = MessageBox.Show(
+                        this,
+                        "WU-BT10 AUDIO is still active. Casio warns that simultaneous Audio and MIDI can be unstable.\n\nDisconnect WU-BT10 AUDIO in Windows Bluetooth settings, then press Connect MIDI again. Open Bluetooth settings now?",
+                        "Disconnect Audio before MIDI",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Information);
+                    if (openSettings == DialogResult.Yes)
+                        OpenUrl("ms-settings:bluetooth");
+                    return;
+                }
+
                 _midiReceivedCount = 0;
                 _midiSentCount = 0;
                 SetMidiPresentation("Starting Bluetooth MIDI", "Preparing the virtual port and waiting for a live WU-BT10 MIDI signal…", Cyan, true);
@@ -373,7 +386,7 @@ internal sealed class MainForm : Form
                     SetMidiPresentation("Connecting WU-BT10 MIDI", "Waiting for the live BLE-MIDI signal and opening its GATT service…", Cyan, true);
                     break;
                 case MidiBridgeState.Connected:
-                    SetMidiPresentation("WU-BT10 MIDI is connected", $"Select “{WindowsMidiLoopback.PortName}” as the MIDI input in Piano Marvel.", Green, true);
+                    SetMidiPresentation("WU-BT10 MIDI is connected", $"Select “{WindowsMidiLoopback.PortName}” as the MIDI input and output in your MIDI application.", Green, true);
                     break;
                 case MidiBridgeState.Recovering:
                     SetMidiPresentation("MIDI connection lost — reconnecting", "Keep the piano on. The bridge will rediscover WU-BT10 and restore notifications automatically.", Amber, true);
@@ -426,8 +439,19 @@ internal sealed class MainForm : Form
         {
             e.Cancel = true;
             _closingAfterMidiStop = true;
-            await _midiBridge.DisposeAsync();
-            Close();
+            try
+            {
+                await _midiBridge.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                DiagnosticTrace.Write("ui", "midi-dispose-on-close-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
+                RepairLog.Write("MIDI bridge shutdown failed while closing: " + ex);
+            }
+            finally
+            {
+                Close();
+            }
             return;
         }
 
@@ -476,7 +500,18 @@ internal sealed class MainForm : Form
             return;
 
         if (_midiBridge.IsRunning)
-            await _midiBridge.StopAsync();
+        {
+            try
+            {
+                await _midiBridge.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                DiagnosticTrace.Write("ui", "midi-stop-before-repair-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
+                SetBusy(false, "Repair was not started", "The MIDI bridge did not stop cleanly. Disconnect MIDI and try the emergency repair again.", Color.Firebrick);
+                return;
+            }
+        }
 
         SetBusy(true, "Waiting for administrator approval", "Approve the Windows prompt to enable the disabled Bluetooth Audio device.");
         var result = await RepairLauncher.RunElevatedAsync();
@@ -497,16 +532,54 @@ internal sealed class MainForm : Form
             ["midiIsRunning"] = _midiBridge.IsRunning,
             ["midiState"] = _midiBridge.State
         });
-        if (_midiBridge.IsRunning)
-            await _midiBridge.StopAsync();
+        _audioConnectButton.Enabled = false;
+        try
+        {
+            if (_midiBridge.IsRunning)
+                await _midiBridge.StopAsync();
 
-        OpenUrl("ms-settings:bluetooth");
-        DiagnosticTrace.Write("ui", "bluetooth-settings-opened-for-audio");
-        SetBusy(false,
-            "Connect WU-BT10 AUDIO in Windows",
-            "Select WU-BT10 AUDIO in Bluetooth settings. Return here afterward; the app will detect the playback endpoint and set it to 20%.",
-            Cyan);
-        _audioConnectButton.Enabled = true;
+            OpenUrl("ms-settings:bluetooth");
+            DiagnosticTrace.Write("ui", "bluetooth-settings-opened-for-audio");
+            SetBusy(false,
+                "Connect WU-BT10 AUDIO in Windows",
+                "Select WU-BT10 AUDIO in Bluetooth settings. Return here afterward; diagnosis will detect the playback endpoint without changing its volume.",
+                Cyan);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticTrace.Write("ui", "audio-switch-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
+            RepairLog.Write("Could not stop MIDI before opening Audio settings: " + ex);
+            SetBusy(false,
+                "Could not switch safely to Audio",
+                "The MIDI bridge did not stop cleanly, so Windows Bluetooth settings were not opened. Try Disconnect MIDI again, then retry Audio.",
+                Color.Firebrick);
+        }
+        finally
+        {
+            _audioConnectButton.Enabled = true;
+        }
+    }
+
+    private async Task SetSafeVolumeAsync()
+    {
+        SetBusy(true, "Setting WU-BT10 AUDIO volume", "Applying 20% only to the active WU-BT10 playback endpoint…");
+        try
+        {
+            var result = await Task.Run(() => RepairEngine.SetSafeVolume());
+            if (!result.Success)
+            {
+                SetBusy(false, "WU-BT10 volume was not changed", result.Message, Color.Firebrick);
+                return;
+            }
+
+            await RefreshDiagnosisAsync();
+        }
+        catch (Exception ex)
+        {
+            DiagnosticTrace.Write("ui", "safe-volume-failed", new Dictionary<string, object?> { ["exception"] = ex.ToString() });
+            RepairLog.Write("WU-BT10 volume action failed: " + ex);
+            SetBusy(false, "WU-BT10 volume was not changed", "Windows could not apply the requested volume. View the diagnostic log for details.", Color.Firebrick);
+        }
     }
 
     private void ApplyDiagnosis(DiagnosticResult diagnosis)

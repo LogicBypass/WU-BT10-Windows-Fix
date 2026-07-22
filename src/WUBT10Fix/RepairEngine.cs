@@ -13,6 +13,24 @@ internal static class RepairEngine
         try
         {
             var disabledAudioDevices = DisabledBluetoothAudioDeviceIds();
+            var registeredEndpointIds = RegisteredEndpointIds();
+            var activeEndpointIds = registeredEndpointIds.Where(AudioEndpointNative.IsActive).ToArray();
+            if (activeEndpointIds.Length > 0)
+            {
+                var volumePercent = CurrentVolumePercent(activeEndpointIds);
+                return TraceDiagnosis(new(
+                    DeviceReadiness.Ready,
+                    "WU-BT10 AUDIO is ready",
+                    volumePercent is null
+                        ? "The playback endpoint is active. Its volume was not changed; use the explicit 20% button if wanted."
+                        : $"The playback endpoint is active at {volumePercent}%. Diagnosis did not change it; use the explicit 20% button if wanted.",
+                    volumePercent),
+                    0,
+                    null,
+                    true,
+                    volumePercent);
+            }
+
             if (disabledAudioDevices.Length > 0)
             {
                 return TraceDiagnosis(new(
@@ -21,21 +39,7 @@ internal static class RepairEngine
                     "Normal app functions remain available without elevation. The optional emergency action can only re-enable this already-disabled device after explicit confirmation and UAC approval."),
                     disabledAudioDevices.Length,
                     null,
-                    null);
-            }
-
-            if (EndpointReady())
-            {
-                var volumeResult = SetSafeVolume();
-                return TraceDiagnosis(new(
-                    DeviceReadiness.Ready,
-                    "WU-BT10 AUDIO is ready — Windows volume set to 20%",
-                    volumeResult.Success
-                        ? "Use the keyboard's volume control for listening loudness. The app changes only the active WU-BT10 endpoint."
-                        : "The playback endpoint is active, but Windows did not accept the 20% volume setting."),
-                    0,
-                    null,
-                    true);
+                    false);
             }
 
             var devices = BluetoothNative.FindWuBt10AudioDevices();
@@ -51,7 +55,7 @@ internal static class RepairEngine
             }
 
             var bluetoothConnected = devices.Any(item => item.Connected);
-            if (EndpointRegistered() && !bluetoothConnected)
+            if (registeredEndpointIds.Length > 0 && !bluetoothConnected)
             {
                 return TraceDiagnosis(new(
                     DeviceReadiness.ReadyDisconnected,
@@ -88,7 +92,8 @@ internal static class RepairEngine
         DiagnosticResult result,
         int? disabledAudioDeviceCount,
         int? wuBt10AudioDeviceCount,
-        bool? activeEndpointPresent)
+        bool? activeEndpointPresent,
+        int? volumePercent = null)
     {
         DiagnosticTrace.Write("audio", "diagnosis-completed", new Dictionary<string, object?>
         {
@@ -96,7 +101,8 @@ internal static class RepairEngine
             ["title"] = result.Title,
             ["disabledAudioDeviceCount"] = disabledAudioDeviceCount,
             ["wuBt10AudioDeviceCount"] = wuBt10AudioDeviceCount,
-            ["activeEndpointPresent"] = activeEndpointPresent
+            ["activeEndpointPresent"] = activeEndpointPresent,
+            ["volumePercent"] = volumePercent
         });
         return result;
     }
@@ -125,7 +131,10 @@ internal static class RepairEngine
                 return RepairResult.Failed("Windows did not restore the disabled Bluetooth Audio device. No other system state was changed.");
 
             if (EndpointReady())
-                return SetSafeVolume("Bluetooth Audio hardware restored. WU-BT10 volume was set to 20%.");
+            {
+                return RepairResult.Completed(
+                    "Bluetooth Audio hardware was restored. WU-BT10 AUDIO is available; its volume was not changed.");
+            }
 
             return RepairResult.Completed(
                 "Bluetooth Audio hardware was restored. Reconnect WU-BT10 AUDIO in Windows Bluetooth settings.",
@@ -151,6 +160,8 @@ internal static class RepairEngine
 
     private static bool EndpointReady() => RegisteredEndpointIds().Any(AudioEndpointNative.IsActive);
 
+    internal static bool IsAudioEndpointActive() => EndpointReady();
+
     internal static RepairResult SetSafeVolume(string? successMessage = null)
     {
         var activeIds = RegisteredEndpointIds().Where(AudioEndpointNative.IsActive).ToArray();
@@ -163,7 +174,15 @@ internal static class RepairEngine
             : RepairResult.Failed("Windows could not change the WU-BT10 volume.");
     }
 
-    private static bool EndpointRegistered() => RegisteredEndpointIds().Length > 0;
+    private static int? CurrentVolumePercent(IEnumerable<string> endpointIds)
+    {
+        foreach (var endpointId in endpointIds)
+        {
+            if (AudioEndpointNative.TryGetVolume(endpointId, out var volume))
+                return checked((int)Math.Round(volume * 100, MidpointRounding.AwayFromZero));
+        }
+        return null;
+    }
 
     private static string[] RegisteredEndpointIds() =>
         ProcessRunner.PowerShell(RegisteredEndpointQuery)

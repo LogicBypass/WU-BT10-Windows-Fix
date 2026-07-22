@@ -12,7 +12,11 @@ internal enum DeviceReadiness
     Error
 }
 
-internal sealed record DiagnosticResult(DeviceReadiness State, string Title, string Message)
+internal sealed record DiagnosticResult(
+    DeviceReadiness State,
+    string Title,
+    string Message,
+    int? VolumePercent = null)
 {
     internal static DiagnosticResult Checking() => new(DeviceReadiness.Checking, "Checking Windows audio", "Looking for WU-BT10 AUDIO and its playback endpoint…");
 }
