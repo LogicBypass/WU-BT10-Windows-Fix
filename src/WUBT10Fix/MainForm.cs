@@ -373,6 +373,9 @@ internal sealed class MainForm : Form
                 case MidiBridgeState.Recovering:
                     SetMidiPresentation("MIDI connection lost — reconnecting", "Keep the piano on. The bridge will rediscover WU-BT10 and restore notifications automatically.", Amber, true);
                     break;
+                case MidiBridgeState.Stopping:
+                    SetMidiPresentation("Disconnecting WU-BT10 MIDI", "Releasing Bluetooth and the temporary MIDI endpoint…", Amber, true);
+                    break;
             }
         });
     }

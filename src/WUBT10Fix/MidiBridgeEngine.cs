@@ -11,7 +11,8 @@ internal enum MidiBridgeState
     Stopped,
     Connecting,
     Connected,
-    Recovering
+    Recovering,
+    Stopping
 }
 
 internal sealed class MidiBridgeEngine : IAsyncDisposable
@@ -28,7 +29,9 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     private GattDeviceService? _service;
     private GattCharacteristic? _characteristic;
     private CancellationTokenSource? _runCancellation;
-    private int _recoveryInProgress;
+    private long _recoveringGeneration;
+    private long _runGeneration;
+    private int _stopRequestCount;
     private int _packetCount;
     private int _messageCount;
     private DateTimeOffset? _firstPacketAt;
@@ -55,22 +58,28 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         await _lifecycle.WaitAsync(cancellationToken);
         try
         {
+            if (Volatile.Read(ref _stopRequestCount) > 0)
+                throw new InvalidOperationException("The MIDI bridge is still stopping. Try Connect again after it has stopped.");
+
             if (IsRunning)
             {
                 Trace("start-ignored-already-running");
                 return;
             }
 
+            var generation = Interlocked.Increment(ref _runGeneration);
+            Interlocked.Exchange(ref _recoveringGeneration, 0);
             _runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             IsRunning = true;
             SetState(MidiBridgeState.Connecting);
+            Trace("run-started", ("generation", generation));
 
             StatusChanged?.Invoke("Creating the Windows MIDI port…");
             _loopback = new WindowsMidiLoopback();
             _midiOutput = await Task.Run(_loopback.OpenOutput, _runCancellation.Token);
             Trace("midi-output-opened", ("port", WindowsMidiLoopback.PortName));
 
-            await ConnectWithRetryAsync(TimeSpan.FromMinutes(1), _runCancellation.Token);
+            await ConnectWithRetryAsync(TimeSpan.FromMinutes(1), generation, _runCancellation.Token);
         }
         catch (Exception ex)
         {
@@ -84,16 +93,19 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         }
     }
 
-    private async Task ConnectWithRetryAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    private async Task ConnectWithRetryAsync(
+        TimeSpan timeout,
+        long generation,
+        CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + timeout;
         Exception? lastError = null;
         var attempt = 0;
-        Trace("connect-retry-started", ("timeoutMs", timeout.TotalMilliseconds));
+        Trace("connect-retry-started", ("timeoutMs", timeout.TotalMilliseconds), ("generation", generation));
 
         while (DateTime.UtcNow < deadline)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            EnsureCurrentRun(generation, cancellationToken);
             attempt++;
 
             try
@@ -110,12 +122,14 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
 
                 Trace("scan-attempt-started", ("attempt", attempt), ("scanTimeoutMs", scanTime.TotalMilliseconds));
                 var address = await FindAdvertisingWuBt10Async(scanTime, cancellationToken);
+                EnsureCurrentRun(generation, cancellationToken);
                 Trace("scan-candidate-selected", ("attempt", attempt), ("address", BluetoothNative.FormatAddress(address)));
                 StatusChanged?.Invoke($"Connecting to live WU-BT10 MIDI ({BluetoothNative.FormatAddress(address)}) — attempt {attempt}…");
 
                 await ReleaseBluetoothAsync(unsubscribe: false);
-                if (await TryConnectOnceAsync(address, cancellationToken))
+                if (await TryConnectOnceAsync(address, generation, cancellationToken))
                 {
+                    EnsureCurrentRun(generation, cancellationToken);
                     _messageCount = 0;
                     _packetCount = 0;
                     _firstPacketAt = null;
@@ -129,7 +143,8 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
 
                 lastError = new InvalidOperationException("Windows did not finish the BLE-MIDI GATT connection.");
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (
+                cancellationToken.IsCancellationRequested || !IsCurrentRun(generation))
             {
                 throw;
             }
@@ -151,7 +166,10 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             lastError);
     }
 
-    private async Task<bool> TryConnectOnceAsync(ulong address, CancellationToken cancellationToken)
+    private async Task<bool> TryConnectOnceAsync(
+        ulong address,
+        long generation,
+        CancellationToken cancellationToken)
     {
         BluetoothLEDevice? device = null;
         GattSession? session = null;
@@ -164,6 +182,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         {
             Trace("gatt-connect-started", ("address", BluetoothNative.FormatAddress(address)));
             device = await BluetoothLEDevice.FromBluetoothAddressAsync(address);
+            EnsureCurrentRun(generation, cancellationToken);
             if (device is null)
             {
                 Trace("bluetooth-device-open-returned-null", ("address", BluetoothNative.FormatAddress(address)));
@@ -178,6 +197,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
                 ("connectionStatus", device.ConnectionStatus));
 
             session = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
+            EnsureCurrentRun(generation, cancellationToken);
             if (session is null)
             {
                 Trace("gatt-session-open-returned-null", ("deviceId", device.BluetoothDeviceId.Id));
@@ -205,9 +225,11 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
                 Trace("gatt-maintain-connection-skipped", ("reason", "finite-uncached-service-discovery-policy"));
             }
             await Task.Delay(350, cancellationToken);
+            EnsureCurrentRun(generation, cancellationToken);
 
             StatusChanged?.Invoke("Opening the BLE-MIDI service…");
             var serviceResult = await device.GetGattServicesForUuidAsync(MidiServiceUuid, BluetoothCacheMode.Uncached);
+            EnsureCurrentRun(generation, cancellationToken);
             Trace(
                 "gatt-service-query-completed",
                 ("status", serviceResult.Status),
@@ -225,6 +247,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
                 unused.Dispose();
 
             var access = await service.RequestAccessAsync();
+            EnsureCurrentRun(generation, cancellationToken);
             Trace("gatt-service-access-completed", ("access", access));
             if (access != DeviceAccessStatus.Allowed)
                 throw new InvalidOperationException($"Windows denied access to WU-BT10 MIDI ({access}).");
@@ -232,6 +255,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             var characteristics = await service.GetCharacteristicsForUuidAsync(
                 MidiCharacteristicUuid,
                 BluetoothCacheMode.Uncached);
+            EnsureCurrentRun(generation, cancellationToken);
             Trace(
                 "gatt-characteristic-query-completed",
                 ("status", characteristics.Status),
@@ -255,6 +279,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             try
             {
                 var initialRead = await characteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
+                EnsureCurrentRun(generation, cancellationToken);
                 Trace(
                     "gatt-characteristic-initial-read-completed",
                     ("status", initialRead.Status),
@@ -270,6 +295,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
 
             var subscription = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
                 GattClientCharacteristicConfigurationDescriptorValue.Notify);
+            EnsureCurrentRun(generation, cancellationToken);
             Trace("gatt-cccd-subscribe-completed", ("status", subscription));
             if (subscription != GattCommunicationStatus.Success)
             {
@@ -391,6 +417,12 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     {
         try
         {
+            if (!ReferenceEquals(sender, _device))
+            {
+                Trace("stale-connection-status-ignored", ("connectionStatus", sender.ConnectionStatus));
+                return;
+            }
+
             Trace(
                 "bluetooth-device-connection-status-changed",
                 ("connectionStatus", sender.ConnectionStatus),
@@ -403,10 +435,12 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
             SetState(MidiBridgeState.Recovering);
             StatusChanged?.Invoke("MIDI connection was lost. Waiting for WU-BT10 to advertise, then reconnecting automatically…");
 
-            if (Interlocked.CompareExchange(ref _recoveryInProgress, 1, 0) == 0)
+            var generation = Volatile.Read(ref _runGeneration);
+            var cancellationToken = _runCancellation?.Token ?? CancellationToken.None;
+            if (Interlocked.CompareExchange(ref _recoveringGeneration, generation, 0) == 0)
             {
-                Trace("recovery-scheduled");
-                _ = Task.Run(RecoverUntilConnectedAsync);
+                Trace("recovery-scheduled", ("generation", generation));
+                _ = Task.Run(() => RecoverUntilConnectedAsync(generation, cancellationToken));
             }
         }
         catch (Exception ex)
@@ -420,10 +454,12 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     {
         try
         {
+            var isCurrent = ReferenceEquals(sender, _session);
             Trace(
                 "gatt-session-status-changed",
                 ("sessionStatus", sender.SessionStatus),
                 ("error", args.Error),
+                ("isCurrent", isCurrent),
                 ("isRunning", IsRunning),
                 ("state", State));
         }
@@ -433,21 +469,21 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         }
     }
 
-    private async Task RecoverUntilConnectedAsync()
+    private async Task RecoverUntilConnectedAsync(long generation, CancellationToken cancellationToken)
     {
-        var cancellationToken = _runCancellation?.Token ?? CancellationToken.None;
-        Trace("recovery-started");
+        Trace("recovery-started", ("generation", generation));
         try
         {
             await _lifecycle.WaitAsync(cancellationToken);
             try
             {
+                EnsureCurrentRun(generation, cancellationToken);
                 await ReleaseBluetoothAsync(unsubscribe: false);
-                while (IsRunning && !cancellationToken.IsCancellationRequested)
+                while (IsCurrentRun(generation) && !cancellationToken.IsCancellationRequested)
                 {
                     try
                     {
-                        await ConnectWithRetryAsync(TimeSpan.FromMinutes(1), cancellationToken);
+                        await ConnectWithRetryAsync(TimeSpan.FromMinutes(1), generation, cancellationToken);
                         return;
                     }
                     catch (TimeoutException ex)
@@ -476,14 +512,27 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         }
         finally
         {
-            Interlocked.Exchange(ref _recoveryInProgress, 0);
-            Trace("recovery-ended", ("isRunning", IsRunning), ("isConnected", IsConnected), ("state", State));
+            Interlocked.CompareExchange(ref _recoveringGeneration, 0, generation);
+            Trace(
+                "recovery-ended",
+                ("generation", generation),
+                ("isCurrent", IsCurrentRun(generation)),
+                ("isRunning", IsRunning),
+                ("isConnected", IsConnected),
+                ("state", State));
         }
     }
 
     internal async Task StopAsync()
     {
         Trace("stop-requested", ("isRunning", IsRunning), ("state", State));
+        Interlocked.Increment(ref _stopRequestCount);
+        var invalidatedGeneration = Interlocked.Increment(ref _runGeneration);
+        var wasRunning = IsRunning;
+        IsRunning = false;
+        IsConnected = false;
+        if (wasRunning)
+            SetState(MidiBridgeState.Stopping);
         _runCancellation?.Cancel();
         await _lifecycle.WaitAsync();
         try
@@ -501,6 +550,8 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         finally
         {
             _lifecycle.Release();
+            Interlocked.Decrement(ref _stopRequestCount);
+            Trace("stop-request-ended", ("invalidatedGeneration", invalidatedGeneration));
         }
     }
 
@@ -508,6 +559,12 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     {
         try
         {
+            if (!ReferenceEquals(sender, _characteristic) || !IsRunning)
+            {
+                Trace("stale-midi-packet-ignored", ("isRunning", IsRunning));
+                return;
+            }
+
             using var reader = DataReader.FromBuffer(args.CharacteristicValue);
             var bytes = new byte[checked((int)reader.UnconsumedBufferLength)];
             reader.ReadBytes(bytes);
@@ -636,7 +693,6 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
         _loopback = null;
         _runCancellation?.Dispose();
         _runCancellation = null;
-        Interlocked.Exchange(ref _recoveryInProgress, 0);
         SetState(MidiBridgeState.Stopped);
         Trace("stop-core-completed");
     }
@@ -644,9 +700,22 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     private void SetState(MidiBridgeState state)
     {
         var previous = State;
+        if (previous == state)
+            return;
+
         State = state;
         Trace("state-changed", ("previous", previous), ("current", state));
         StateChanged?.Invoke(state);
+    }
+
+    private bool IsCurrentRun(long generation) =>
+        IsRunning && generation == Volatile.Read(ref _runGeneration);
+
+    private void EnsureCurrentRun(long generation, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentRun(generation))
+            throw new OperationCanceledException("The MIDI connection attempt was superseded by a newer lifecycle operation.", cancellationToken);
     }
 
     private static object? SafeDeviceStatus(BluetoothLEDevice? device)

@@ -109,3 +109,14 @@ Evidence files:
 
 - `TestResults/production-baseline-cycles-no-traffic.json`
 - `TestResults/production-no-maintain-cycles.json`
+
+## Serialized lifecycle regression test
+
+After adding single-instance ownership, run generations, stale-callback guards,
+and an explicit stopping state, the finite policy completed 10/10 additional
+hardware cycles. Mean GATT connection time was 4,088.4 ms and the slowest was
+7,911.9 ms. Every cycle restored advertising. The trace contained no failed,
+timed-out, stale, or error event, and the run left zero WU-BT10 virtual endpoints
+and zero application processes behind.
+
+Evidence file: `TestResults/lifecycle-generation-cycles.json`.
