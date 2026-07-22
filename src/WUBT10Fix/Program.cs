@@ -54,12 +54,15 @@ internal static class Program
                     ArgumentInt(args, "--midi-cycle-traffic-seconds", 0, 0, 60));
                 var releaseTimeout = TimeSpan.FromSeconds(
                     ArgumentInt(args, "--midi-cycle-release-seconds", 10, 1, 60));
+                var holdDuration = TimeSpan.FromSeconds(
+                    ArgumentInt(args, "--midi-cycle-hold-seconds", 0, 0, 60));
                 var maintainConnection = ArgumentBool(args, "--midi-cycle-maintain-connection", false);
                 return RunMidiCycleTestAsync(
                         midiCycleTestPath,
                         cycles,
                         trafficTimeout,
                         releaseTimeout,
+                        holdDuration,
                         maintainConnection)
                     .GetAwaiter()
                     .GetResult();
@@ -314,6 +317,7 @@ internal static class Program
         int requestedCycles,
         TimeSpan trafficTimeout,
         TimeSpan releaseTimeout,
+        TimeSpan holdDuration,
         bool maintainConnection)
     {
         var results = new List<object>();
@@ -351,6 +355,8 @@ internal static class Program
                 await bridge.StartAsync();
                 if (trafficRequired)
                     await traffic.Task.WaitAsync(trafficTimeout);
+                if (holdDuration > TimeSpan.Zero)
+                    await Task.Delay(holdDuration);
             }
             catch (Exception ex)
             {
@@ -423,6 +429,7 @@ internal static class Program
             TrafficTimeoutSeconds = trafficTimeout.TotalSeconds,
             TrafficRequired = trafficTimeout > TimeSpan.Zero,
             ReleaseTimeoutSeconds = releaseTimeout.TotalSeconds,
+            HoldSeconds = holdDuration.TotalSeconds,
             MaintainConnection = maintainConnection,
             Results = results,
             DiagnosticSession = DiagnosticTrace.SessionId,
