@@ -7,9 +7,16 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        DiagnosticTrace.Begin(DetermineMode(args));
+        var mode = DetermineMode(args);
+        DiagnosticTrace.Begin(mode);
         try
         {
+            using var instanceLease = RequiresExclusiveInstance(mode)
+                ? SingleInstanceLease.TryAcquire()
+                : null;
+            if (instanceLease is { IsAcquired: false })
+                return ReportInstanceConflict(args, mode);
+
             if (args.Contains("--repair", StringComparer.OrdinalIgnoreCase))
                 return RunElevatedAction(args, RepairEngine.Run);
 
@@ -62,6 +69,39 @@ internal static class Program
         {
             DiagnosticTrace.End("main-returned");
         }
+    }
+
+    private static bool RequiresExclusiveInstance(string mode) =>
+        mode is "gui" or "midi-test" or "midi-cycle-test";
+
+    private static int ReportInstanceConflict(string[] args, string mode)
+    {
+        const string message = "WU-BT10 Windows Fix is already running. Use the existing window or stop its MIDI bridge before starting another test.";
+        DiagnosticTrace.Write("process", "single-instance-conflict", new Dictionary<string, object?>
+        {
+            ["mode"] = mode
+        });
+
+        var resultPath = ArgumentValue(args, mode == "midi-cycle-test"
+            ? "--midi-cycle-test-output"
+            : "--midi-test-output");
+        if (!string.IsNullOrWhiteSpace(resultPath))
+        {
+            File.WriteAllText(resultPath, JsonSerializer.Serialize(new
+            {
+                Success = false,
+                Error = message,
+                DiagnosticSession = DiagnosticTrace.SessionId,
+                DiagnosticLog = DiagnosticTrace.CurrentPath
+            }));
+        }
+        else
+        {
+            ApplicationConfiguration.Initialize();
+            MessageBox.Show(message, "WU-BT10 Windows Fix", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        return 2;
     }
 
     private static string DetermineMode(string[] args)
