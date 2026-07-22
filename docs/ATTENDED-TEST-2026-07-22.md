@@ -175,3 +175,42 @@ Evidence files:
 - `TestResults/reverse-midi-live-test.json`
 - `TestResults/reverse-sysex-live-test.json`
 - `TestResults/winmm-bidirectional-probe-2.json`
+
+## Production dwell and crash recovery
+
+A representative five-cycle run added a five-second connected dwell and allowed
+45 seconds for advertising after Stop. It passed 5/5 with advertising restored
+on every cycle. A forced-kill test then verified that the next process safely
+reused the stale loopback, connected on its first attempt, removed the endpoint,
+and left Windows MIDI Services responsive.
+
+Evidence file: `TestResults/production-realistic-5-cycles.json`.
+
+## Audio root cause and compatibility-mode verification
+
+Windows repeatedly reported WU-BT10 connected while exposing no playback
+endpoint. Both the WU-BT10 A2DP MEDIA node and Intel Smart Sound Technology for
+Bluetooth Audio were present, started, and `CM_PROB_NONE`. Exact PnP restarts,
+device scan, and Audio Endpoint Builder restart did not help.
+
+A guarded reproduction of the historical Intel-bypass plus A2DP-mapping rebuild
+created an active standard endpoint and restored Intel, but the endpoint became
+phantom after disconnect and two later Windows connections never returned it to
+active. This rejected the one-shot mapping rebuild as a production solution.
+
+With Intel Bluetooth Audio offload disabled, normal Windows Connect created
+Connected audio and an active WU-BT10 endpoint in about four seconds. The
+following passed:
+
+- three normal Audio disconnect/reconnect cycles with targeted playback;
+- Audio disconnect → finite MIDI connect/stop → advertising restored → Audio
+  reconnect → targeted playback;
+- product-driven Intel restoration and compatibility-record removal;
+- reproduction of the missing endpoint with Intel restored;
+- product-driven compatibility enable, exact disabled-state verification,
+  persisted record, supported Windows reconnect, and targeted playback; and
+- two diagnoses before/after at the unchanged 54% endpoint volume.
+
+The selected production behavior is a persistent, disclosed, reversible Intel
+offload compatibility mode. Production source does not retain the A2DP
+service-mapping reset.

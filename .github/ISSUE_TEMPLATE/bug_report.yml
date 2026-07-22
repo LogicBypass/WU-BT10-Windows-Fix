@@ -1,5 +1,5 @@
-name: Repair did not work
-description: Report a reproducible WU-BT10 endpoint or restoration problem.
+name: WU-BT10 connection problem
+description: Report a reproducible Audio, compatibility-mode, switching, or MIDI problem.
 title: "[Bug]: "
 labels: [bug]
 body:
@@ -27,9 +27,13 @@ body:
       label: Result shown by the app
       options:
         - Pair WU-BT10 AUDIO first
-        - Repair is installed; WU-BT10 is disconnected
-        - WU-BT10 is paired but its audio output is missing
-        - A different audio driver was detected
+        - WU-BT10 AUDIO is ready
+        - WU-BT10 AUDIO is ready in compatibility mode
+        - Audio compatibility mode is active
+        - Intel offload connected without a playback output
+        - Windows Bluetooth Audio hardware is disabled
+        - MIDI bridge could not start
+        - MIDI connection lost or did not release
         - Repair failed
         - Other
     validations:
@@ -44,6 +48,6 @@ body:
   - type: textarea
     id: log
     attributes:
-      label: Relevant repair log excerpt
-      description: The log is at %LOCALAPPDATA%\WU-BT10-Fix\repair.log.
+      label: Relevant diagnostic or repair log excerpt
+      description: Logs are under %LOCALAPPDATA%\WU-BT10-Fix. Remove identifiers you consider private.
       render: text

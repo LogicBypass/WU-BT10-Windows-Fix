@@ -3,6 +3,7 @@ namespace WUBT10Fix;
 internal sealed class SingleInstanceLease : IDisposable
 {
     internal const string ApplicationMutexName = @"Local\WU-BT10-Windows-Fix-4A1B695F-3BDA-4DAA-BB53-82B90FD739A6";
+    internal const string AudioMutationMutexName = @"Local\WU-BT10-Audio-Mutation-00EF20A7-7896-497C-B45A-52DF25D5177C";
 
     private Mutex? _mutex;
 

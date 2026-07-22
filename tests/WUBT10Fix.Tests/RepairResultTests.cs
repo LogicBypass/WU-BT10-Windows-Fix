@@ -31,4 +31,20 @@ public sealed class RepairResultTests
         Assert.Equal("restored", result.Message);
     }
 
+    [Theory]
+    [InlineData(1, 1, true)]
+    [InlineData(0, 1, false)]
+    [InlineData(2, 1, false)]
+    [InlineData(1, 0, false)]
+    [InlineData(1, 2, false)]
+    public void CompatibilityModeRequiresOneExactHealthyPath(
+        int intelDevices,
+        int wuA2dpDevices,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            RepairEngine.IsCompatibilityModeEligible(intelDevices, wuA2dpDevices));
+    }
+
 }

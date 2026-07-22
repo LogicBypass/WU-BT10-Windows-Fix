@@ -1,84 +1,87 @@
-# WU-BT10 retained-session hardware test
+# WU-BT10 2.0 production hardware protocol
 
-This protocol is for the `1.4.2-diagnostic.1` build. It observes the existing
-1.4.1 connection behavior; it does not contain the proposed connection-lifecycle
-fix.
+Use this protocol for a release candidate on every supported Windows
+architecture and Bluetooth/audio-driver family available.
 
-## Evidence to record
+## Evidence
 
-Casio uses different sounds for the two Bluetooth functions:
+Record build hash, Windows build, Bluetooth driver, audio driver, Windows MIDI
+Services version, connection time, app state, and the latest correlated JSONL
+session. Do not include full device IDs in public reports.
 
-- rising piano melody: Bluetooth Audio connected;
-- falling piano melody: Bluetooth Audio disconnected;
-- rising vibraphone melody: BLE-MIDI connected; and
-- falling vibraphone melody: BLE-MIDI disconnected.
+Casio connection sounds are useful physical evidence:
 
-Record the notification sound, Bluetooth light behavior, app status, and whether
-Android can find `WU-BT10 MIDI`. The notification sound is stronger evidence than
-the light by itself because flashing is also used for Audio pairing standby.
+- rising/falling piano melody: Bluetooth Audio connect/disconnect;
+- rising/falling vibraphone melody: BLE-MIDI connect/disconnect.
 
-## Safety and recovery
+The WU-BT10 light is supplementary evidence. This unit continued flashing
+during verified Windows MIDI traffic, although it became steady with Casio's
+Android app.
 
-1. Do not run an older 1.3.x build during this test.
-2. Do not clear the Audio connection log unless the final recovery step is
-   explicitly required; clearing it erases pairing.
-3. Recover in this order: app Stop, wait 30 seconds, Windows Bluetooth off/on,
-   piano wireless off/on with `FUNCTION + D1`, then restart the piano/adapter.
-4. Keep the deliberate simultaneous Audio plus MIDI test to one iteration.
+## A. Standard-user Audio
 
-## Test A: clean MIDI release
+1. Connect WU-BT10 AUDIO in Windows.
+2. Confirm the app reports an active endpoint and its current volume.
+3. Run Test sound and confirm Windows completes targeted playback.
+4. Confirm the default Windows output and endpoint volume did not change.
+5. Disconnect and reconnect Audio three times, running Test sound each time.
 
-1. Disconnect `WU-BT10 AUDIO` in Windows Bluetooth settings.
-2. Disable Bluetooth temporarily on nearby phones/tablets so they cannot
-   reconnect automatically.
-3. Do not press the piano's Bluetooth Audio pairing command.
-4. Toggle the piano wireless function off and on with `FUNCTION + D1`.
-5. Start the diagnostic build and click **Connect WU-BT10 MIDI**.
-6. Record whether the rising vibraphone melody occurs.
-7. Play at least five notes and confirm the message counter increases.
-8. Click **Disconnect WU-BT10 MIDI**.
-9. Record whether the falling vibraphone melody occurs.
-10. Check the Casio Android app for `WU-BT10 MIDI` after 5, 15, and 30 seconds.
-11. Close the Windows app normally.
-12. Click **View diagnostic log** before closing if an immediate inspection is
-    needed. Otherwise retrieve the latest JSONL file from
-    `%LOCALAPPDATA%\WU-BT10-Fix\diagnostics`.
+If Windows reports Connected without playback and the app offers compatibility
+mode, continue with B. Do not run compatibility mode on a different or ambiguous
+device inventory.
 
-Repeat this test ten times unless Android loses the adapter. Stop immediately on
-the first loss and preserve that session log before recovery.
+## B. Compatibility-mode transaction
 
-## Test B: shutdown paths
+1. Review the confirmation and ensure **No** is the default.
+2. Enable compatibility mode and approve UAC.
+3. Confirm exactly one recorded Intel Bluetooth Audio node is
+   `CM_PROB_DISABLED`.
+4. Disconnect/reconnect WU-BT10 AUDIO in Windows and repeat A.
+5. Restart the app and Windows; confirm the mode is still recognized.
+6. Select Restore Intel default mode and approve UAC.
+7. Confirm Intel is `CM_PROB_NONE` and the compatibility record is removed.
+8. Re-enable compatibility mode only if the missing-endpoint failure is
+   reproduced and the exact-one preconditions still hold.
 
-Run one clean connection for each path and test Android visibility afterward:
+## C. Bidirectional MIDI
 
-1. Disconnect button, then close the app.
-2. Close the window while MIDI is connected.
-3. Turn the piano off while connected, turn it back on, and allow recovery.
-4. Put Windows to sleep while connected, resume, and allow recovery.
-5. Turn Windows Bluetooth off while connected, turn it back on, and allow
-   recovery.
+1. Disconnect Audio in Windows.
+2. Start MIDI and record the vibraphone connection tone.
+3. Play at least five notes; verify input count and the target MIDI application.
+4. Send channel voice and one safe SysEx message from the MIDI application;
+   verify output count and BLE write completion.
+5. Stop MIDI; verify the disconnection tone and BLE advertising within 45
+   seconds.
+6. Repeat five times with a five-second connected dwell.
 
-A forced process termination is tested only after the normal paths are recorded,
-because it cannot execute the app's cleanup code.
+## D. Mode transition
 
-## Test C: exclusive-mode transitions
+1. Connect Audio and complete Test sound.
+2. Press Connect MIDI while Audio is active; verify the app refuses and does not
+   acquire BLE.
+3. Disconnect Audio, connect MIDI, exchange traffic, then stop MIDI.
+4. Press Connect Audio in Windows, reconnect, and complete Test sound.
+5. Repeat three times.
 
-1. Connect Audio in Windows and confirm the rising piano melody.
-2. Disconnect Audio in Windows and confirm the falling piano melody.
-3. Connect MIDI and confirm the rising vibraphone melody.
-4. Stop MIDI and confirm the falling vibraphone melody.
-5. Verify Android visibility, then reconnect Audio.
+## E. Recovery paths
 
-Run one negative-control iteration with Audio left connected before MIDI. Casio
-documents that this combination may make MIDI unstable, so it is not a normal
-operating mode.
+Run one connection for each path and verify later BLE advertising and Audio
+reconnect:
 
-## Interpretation
+1. MIDI Disconnect button;
+2. close the app while MIDI is connected;
+3. piano power cycle with automatic MIDI recovery;
+4. Windows Bluetooth off/on;
+5. sleep/resume;
+6. forced process termination, then next-process stale-loopback recovery.
 
-- No falling vibraphone plus no Android advertisement points to a retained
-  Windows/app GATT connection.
-- GATT `Closed` plus a falling vibraphone but no Android advertisement until a
-  hardware restart points to an adapter/firmware lock.
-- Failures limited to the simultaneous test point to Audio/MIDI coexistence.
-- Android sees the adapter but cannot connect points to a connection/cache issue,
-  not an advertising failure.
+## Stop conditions
+
+Stop immediately and preserve logs if:
+
+- compatibility mode cannot verify the exact Intel node;
+- Intel cannot be restored after a requested rollback;
+- WU-BT10 does not advertise within 45 seconds after a representative Stop;
+- Windows MIDI Services stops responding;
+- pairing disappears without an explicit user removal; or
+- a process crash, unhandled UI exception, or stuck temporary endpoint occurs.

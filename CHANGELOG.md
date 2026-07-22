@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0 - 2026-07-22
+
+- Selected the finite BLE lifecycle after controlled hardware A/B testing and
+  verified five representative connect/hold/disconnect cycles with advertising
+  restored after every stop.
+- Added serialized MIDI lifecycle, process-wide ownership, stale-callback
+  rejection, and crash recovery for a leftover Windows MIDI Services loopback.
+- Added complete BLE-MIDI framing and bidirectional forwarding, including
+  channel voice, system common, real-time, running status, and SysEx.
+- Added a persistent, explicit, reversible Intel Bluetooth Audio compatibility
+  mode for the verified offload failure. It validates exact device inventory,
+  requires UAC only to disable/restore Intel offload, records intentional state,
+  and never resets profiles or Windows audio services.
+- Added direct WU-BT10 playback testing without changing the Windows default
+  output or endpoint volume.
+- Made Audio/MIDI switching explicit: Audio stops MIDI first; MIDI refuses to
+  start while the Audio endpoint is active.
+- Changed diagnosis to be read-only and made the 20% volume action explicit.
+- Verified three Audio reconnect/playback cycles, Audio → MIDI → Audio,
+  compatibility-mode restore/re-enable, real MIDI notes, SysEx in both
+  directions, forced-process recovery, and service/device restoration.
+
 ## 1.4.2-diagnostic.2 - 2026-07-22
 
 - Added the BLE-MIDI-required initial characteristic read before enabling

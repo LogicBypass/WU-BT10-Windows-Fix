@@ -20,6 +20,12 @@ internal static class Program
             if (args.Contains("--repair", StringComparer.OrdinalIgnoreCase))
                 return RunElevatedAction(args, RepairEngine.Run);
 
+            if (args.Contains("--enable-audio-compatibility", StringComparer.OrdinalIgnoreCase))
+                return RunElevatedAction(args, RepairEngine.EnableCompatibilityMode);
+
+            if (args.Contains("--restore-intel-audio", StringComparer.OrdinalIgnoreCase))
+                return RunElevatedAction(args, RepairEngine.RestoreCompatibilityMode);
+
             var diagnosticProbePath = ArgumentValue(args, "--diagnostic-probe-output");
             if (!string.IsNullOrWhiteSpace(diagnosticProbePath))
                 return WriteDiagnosticProbe(diagnosticProbePath);
@@ -31,6 +37,10 @@ internal static class Program
             var volumeResultPath = ArgumentValue(args, "--set-safe-volume");
             if (!string.IsNullOrWhiteSpace(volumeResultPath))
                 return WriteSafeVolumeResult(volumeResultPath);
+
+            var audioPlaybackTestPath = ArgumentValue(args, "--audio-playback-test-output");
+            if (!string.IsNullOrWhiteSpace(audioPlaybackTestPath))
+                return RunAudioPlaybackTestAsync(audioPlaybackTestPath).GetAwaiter().GetResult();
 
             var winMmProbePath = ArgumentValue(args, "--winmm-loopback-probe-output");
             if (!string.IsNullOrWhiteSpace(winMmProbePath))
@@ -117,9 +127,12 @@ internal static class Program
     private static string DetermineMode(string[] args)
     {
         if (args.Contains("--repair", StringComparer.OrdinalIgnoreCase)) return "repair";
+        if (args.Contains("--enable-audio-compatibility", StringComparer.OrdinalIgnoreCase)) return "enable-audio-compatibility";
+        if (args.Contains("--restore-intel-audio", StringComparer.OrdinalIgnoreCase)) return "restore-intel-audio";
         if (ArgumentValue(args, "--diagnostic-probe-output") is not null) return "diagnostic-probe";
         if (ArgumentValue(args, "--diagnose-output") is not null) return "diagnose";
         if (ArgumentValue(args, "--set-safe-volume") is not null) return "set-safe-volume";
+        if (ArgumentValue(args, "--audio-playback-test-output") is not null) return "audio-playback-test";
         if (ArgumentValue(args, "--winmm-loopback-probe-output") is not null) return "winmm-loopback-probe";
         if (ArgumentValue(args, "--midi-test-output") is not null) return "midi-test";
         if (ArgumentValue(args, "--midi-cycle-test-output") is not null) return "midi-cycle-test";
@@ -151,14 +164,22 @@ internal static class Program
     {
         var resultPath = ArgumentValue(args, "--result");
         RepairResult result;
-        try
+        using var mutationLease = SingleInstanceLease.TryAcquire(SingleInstanceLease.AudioMutationMutexName);
+        if (!mutationLease.IsAcquired)
         {
-            result = action();
+            result = RepairResult.Failed("Another Audio compatibility or repair action is already running. Wait for it to finish, then diagnose again.");
         }
-        catch (Exception ex)
+        else
         {
-            RepairLog.Write(ex.ToString());
-            result = RepairResult.Failed("The repair stopped unexpectedly. See the repair log for details.");
+            try
+            {
+                result = action();
+            }
+            catch (Exception ex)
+            {
+                RepairLog.Write(ex.ToString());
+                result = RepairResult.Failed("The repair stopped unexpectedly. See the repair log for details.");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(resultPath))
@@ -201,6 +222,21 @@ internal static class Program
         catch (Exception ex)
         {
             RepairLog.Write("Could not set safe volume: " + ex);
+            return 1;
+        }
+    }
+
+    private static async Task<int> RunAudioPlaybackTestAsync(string path)
+    {
+        try
+        {
+            var result = await AudioPlaybackTester.PlayAsync();
+            File.WriteAllText(path, JsonSerializer.Serialize(result));
+            return result.Success ? 0 : 1;
+        }
+        catch (Exception ex)
+        {
+            File.WriteAllText(path, JsonSerializer.Serialize(new AudioPlaybackTestResult(false, ex.Message)));
             return 1;
         }
     }

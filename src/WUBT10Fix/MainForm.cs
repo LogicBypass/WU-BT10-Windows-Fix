@@ -17,6 +17,7 @@ internal sealed class MainForm : Form
     private readonly Label _statusMark = new();
     private readonly Button _repairButton = new();
     private readonly Button _audioConnectButton = new();
+    private readonly Button _testSoundButton = new();
     private readonly Button _soundButton = new();
     private readonly Button _supportButton = new();
     private readonly Button _logButton = new();
@@ -144,7 +145,7 @@ internal sealed class MainForm : Form
         _audioConnectButton.FlatStyle = FlatStyle.Flat;
         _audioConnectButton.FlatAppearance.BorderSize = 0;
         _audioConnectButton.Location = new Point(32, 196);
-        _audioConnectButton.Size = new Size(214, 44);
+        _audioConnectButton.Size = new Size(196, 44);
         _audioConnectButton.Click += async (_, _) => await ConnectAudioAsync();
 
         _repairButton.Text = "Emergency: re-enable device";
@@ -153,14 +154,20 @@ internal sealed class MainForm : Form
         _repairButton.ForeColor = Color.White;
         _repairButton.FlatStyle = FlatStyle.Flat;
         _repairButton.FlatAppearance.BorderSize = 0;
-        _repairButton.Location = new Point(260, 196);
-        _repairButton.Size = new Size(214, 44);
+        _repairButton.Location = new Point(240, 196);
+        _repairButton.Size = new Size(210, 44);
         _repairButton.Visible = false;
         _repairButton.Click += async (_, _) => await RepairAsync();
 
-        _soundButton.Text = "Set WU-BT10 to 20%";
-        _soundButton.Location = new Point(488, 196);
-        _soundButton.Size = new Size(190, 44);
+        _testSoundButton.Text = "Test sound";
+        _testSoundButton.Location = new Point(462, 196);
+        _testSoundButton.Size = new Size(110, 44);
+        _testSoundButton.Enabled = false;
+        _testSoundButton.Click += async (_, _) => await PlayTestSoundAsync();
+
+        _soundButton.Text = "Set volume 20%";
+        _soundButton.Location = new Point(584, 196);
+        _soundButton.Size = new Size(144, 44);
         _soundButton.Enabled = false;
         _soundButton.Click += async (_, _) => await SetSafeVolumeAsync();
 
@@ -179,7 +186,7 @@ internal sealed class MainForm : Form
 
         var persistenceTitle = new Label
         {
-            Text = "Safe audio handling — no Bluetooth stack resets",
+            Text = "Standard-user switching — reversible Intel compatibility mode",
             Font = new Font("Segoe UI Semibold", 11.5F),
             ForeColor = Navy,
             AutoSize = true,
@@ -188,7 +195,7 @@ internal sealed class MainForm : Form
 
         var persistenceText = new Label
         {
-            Text = "Diagnosis is read-only. The app sets WU-BT10 AUDIO to 20% only when you press the volume button. Repair is enable-only: it can restore a disabled Intel Bluetooth Audio device, but never disables hardware, toggles Bluetooth profiles, or restarts Windows audio services.",
+            Text = "Diagnosis, sound testing, and normal Audio/MIDI switching need no administrator rights. If Intel offload connects without playback, one confirmed UAC action enables the tested compatibility mode. It persists across restarts, and a separate button restores Intel. No Bluetooth profile, pairing, volume, or audio-service reset is used.",
             ForeColor = Color.FromArgb(70, 79, 92),
             AutoSize = false,
             Location = new Point(32, 345),
@@ -198,7 +205,7 @@ internal sealed class MainForm : Form
 
         var privacyText = new Label
         {
-            Text = $"Open source • No network access during repair • Version {Application.ProductVersion}",
+            Text = $"Open source • No network access during repair • Version {Application.ProductVersion.Split('+')[0]}",
             ForeColor = Color.FromArgb(112, 120, 132),
             AutoSize = true,
             Location = new Point(32, 433)
@@ -209,6 +216,7 @@ internal sealed class MainForm : Form
             _progress,
             _audioConnectButton,
             _repairButton,
+            _testSoundButton,
             _soundButton,
             _supportButton,
             _logButton,
@@ -480,19 +488,31 @@ internal sealed class MainForm : Form
     private async Task RepairAsync()
     {
         var diagnosis = await Task.Run(RepairEngine.Diagnose);
-        if (diagnosis.State != DeviceReadiness.NeedsRepair)
+        if (diagnosis.State is not (
+                DeviceReadiness.NeedsRepair
+                or DeviceReadiness.NeedsCompatibilityMode
+                or DeviceReadiness.ReadyCompatibility
+                or DeviceReadiness.CompatibilityDisconnected))
         {
             ApplyDiagnosis(diagnosis);
             return;
         }
 
+        var enableCompatibility = diagnosis.State == DeviceReadiness.NeedsCompatibilityMode;
+        var restoreCompatibility = diagnosis.State is DeviceReadiness.ReadyCompatibility or DeviceReadiness.CompatibilityDisconnected;
         var confirmation = MessageBox.Show(
             this,
-            "Windows reports that Intel Bluetooth Audio is already disabled.\n\n" +
-            "This optional emergency action needs administrator approval because it runs only:\n" +
-            "pnputil /enable-device <the exact disabled Intel Bluetooth Audio device>\n\n" +
-            "It will not disable or restart devices, change Bluetooth profiles, or restart services. Continue?",
-            "Re-enable disabled Bluetooth Audio device?",
+            enableCompatibility
+                ? "Testing on this PC confirmed that Intel Bluetooth-audio offload connects WU-BT10 without creating playback.\n\n" +
+                  "Compatibility mode needs administrator approval to disable only the exact Intel Bluetooth Audio offload device. Windows then uses its standard A2DP path. This affects Bluetooth audio power offload system-wide, remains active across restarts, and is fully reversible from this app. It does not change profiles, services, pairing, or volume. Continue?"
+                : restoreCompatibility
+                    ? "Restore Intel Bluetooth-audio offload to its Windows default?\n\nWU-BT10 may again connect without a playback output on this driver. This action only re-enables the exact device previously disabled by compatibility mode."
+                    : "Windows reports that Intel Bluetooth Audio is disabled but this app did not record it as compatibility mode.\n\nThis emergency action needs administrator approval to re-enable only that exact device. It will not change Bluetooth profiles or restart services. Continue?",
+            enableCompatibility
+                ? "Enable tested Audio compatibility mode?"
+                : restoreCompatibility
+                    ? "Restore Intel default mode?"
+                    : "Re-enable disabled Bluetooth Audio device?",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
             MessageBoxDefaultButton.Button2);
@@ -513,12 +533,35 @@ internal sealed class MainForm : Form
             }
         }
 
-        SetBusy(true, "Waiting for administrator approval", "Approve the Windows prompt to enable the disabled Bluetooth Audio device.");
-        var result = await RepairLauncher.RunElevatedAsync();
+        SetBusy(
+            true,
+            "Waiting for administrator approval",
+            enableCompatibility
+                ? "Approve the Windows prompt to enable tested Audio compatibility mode."
+                : restoreCompatibility
+                    ? "Approve the Windows prompt to restore Intel default mode."
+                    : "Approve the Windows prompt to enable the disabled Bluetooth Audio device.");
+        var action = enableCompatibility
+            ? "--enable-audio-compatibility"
+            : restoreCompatibility
+                ? "--restore-intel-audio"
+                : "--repair";
+        var result = await RepairLauncher.RunElevatedAsync(action);
         if (!result.Success)
         {
             SetBusy(false, "Repair was not completed", result.Message, Amber);
             _repairButton.Enabled = true;
+            return;
+        }
+
+        if (enableCompatibility && !result.EndpointPresent)
+        {
+            OpenUrl("ms-settings:bluetooth");
+            SetBusy(
+                false,
+                "Audio compatibility mode is active",
+                "In Windows Bluetooth settings, disconnect WU-BT10 AUDIO if shown as Connected, then press Connect. Return here to test sound.",
+                Green);
             return;
         }
 
@@ -582,6 +625,38 @@ internal sealed class MainForm : Form
         }
     }
 
+    private async Task PlayTestSoundAsync()
+    {
+        SetBusy(true, "Testing WU-BT10 AUDIO", "Sending a short, quiet signal directly to the WU-BT10 playback endpoint…");
+        try
+        {
+            var result = await AudioPlaybackTester.PlayAsync();
+            SetBusy(
+                false,
+                result.Success ? "WU-BT10 playback test completed" : "WU-BT10 playback test failed",
+                result.Message,
+                result.Success ? Green : Color.Firebrick);
+        }
+        catch (Exception ex)
+        {
+            RepairLog.Write("WU-BT10 playback test failed: " + ex);
+            SetBusy(false, "WU-BT10 playback test failed", ex.Message, Color.Firebrick);
+        }
+        finally
+        {
+            try
+            {
+                var endpointActive = await Task.Run(RepairEngine.IsAudioEndpointActive);
+                _testSoundButton.Enabled = endpointActive;
+                _soundButton.Enabled = endpointActive;
+            }
+            catch (Exception ex)
+            {
+                RepairLog.Write("Could not refresh Audio controls after playback test: " + ex.Message);
+            }
+        }
+    }
+
     private void ApplyDiagnosis(DiagnosticResult diagnosis)
     {
         _progress.Visible = false;
@@ -591,12 +666,15 @@ internal sealed class MainForm : Form
         var presentation = diagnosis.State switch
         {
             DeviceReadiness.Ready => (Green, false, true),
+            DeviceReadiness.ReadyCompatibility => (Green, true, true),
             DeviceReadiness.ReadyDisconnected => (Green, false, false),
             DeviceReadiness.NeedsRepair => (Amber, true, false),
+            DeviceReadiness.NeedsCompatibilityMode => (Amber, true, false),
+            DeviceReadiness.CompatibilityDisconnected => (Green, true, false),
             DeviceReadiness.ManualAction => (Amber, false, false),
             DeviceReadiness.NotPaired => (Amber, false, false),
             DeviceReadiness.UnsupportedChipset => (Amber, false, false),
-            DeviceReadiness.Error => (Color.Firebrick, true, false),
+            DeviceReadiness.Error => (Color.Firebrick, false, false),
             _ => (Cyan, false, false)
         };
 
@@ -605,10 +683,16 @@ internal sealed class MainForm : Form
         _audioConnectButton.BackColor = _audioConnectButton.Enabled ? Cyan : Color.FromArgb(208, 213, 220);
         _audioConnectButton.ForeColor = _audioConnectButton.Enabled ? Color.White : Color.FromArgb(105, 112, 122);
         _repairButton.Enabled = presentation.Item2;
-        _repairButton.Text = "Emergency: re-enable device";
+        _repairButton.Text = diagnosis.State switch
+        {
+            DeviceReadiness.NeedsCompatibilityMode => "Enable compatibility mode",
+            DeviceReadiness.ReadyCompatibility or DeviceReadiness.CompatibilityDisconnected => "Restore Intel default mode",
+            _ => "Emergency: re-enable device"
+        };
         _repairButton.Visible = presentation.Item2;
         _repairButton.BackColor = presentation.Item2 ? Cyan : Color.FromArgb(208, 213, 220);
         _repairButton.ForeColor = presentation.Item2 ? Color.White : Color.FromArgb(105, 112, 122);
+        _testSoundButton.Enabled = presentation.Item3;
         _soundButton.Enabled = presentation.Item3;
     }
 
@@ -623,6 +707,7 @@ internal sealed class MainForm : Form
         _audioConnectButton.Enabled = !busy;
         _repairButton.BackColor = busy ? Color.FromArgb(208, 213, 220) : Cyan;
         _repairButton.ForeColor = busy ? Color.FromArgb(105, 112, 122) : Color.White;
+        _testSoundButton.Enabled = false;
         _soundButton.Enabled = false;
     }
 

@@ -4,8 +4,11 @@ internal enum DeviceReadiness
 {
     Checking,
     Ready,
+    ReadyCompatibility,
     ReadyDisconnected,
     NeedsRepair,
+    NeedsCompatibilityMode,
+    CompatibilityDisconnected,
     ManualAction,
     NotPaired,
     UnsupportedChipset,

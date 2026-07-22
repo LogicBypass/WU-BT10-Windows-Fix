@@ -6,8 +6,11 @@ namespace WUBT10Fix;
 
 internal static class RepairLauncher
 {
-    internal static async Task<RepairResult> RunElevatedAsync()
+    internal static async Task<RepairResult> RunElevatedAsync(string actionArgument)
     {
+        if (actionArgument is not ("--repair" or "--enable-audio-compatibility" or "--restore-intel-audio"))
+            throw new ArgumentOutOfRangeException(nameof(actionArgument));
+
         var resultPath = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
             $"wubt10-fix-result-{Guid.NewGuid():N}.json");
@@ -24,7 +27,7 @@ internal static class RepairLauncher
                 WorkingDirectory = AppContext.BaseDirectory,
                 WindowStyle = ProcessWindowStyle.Hidden
             };
-            startInfo.ArgumentList.Add("--repair");
+            startInfo.ArgumentList.Add(actionArgument);
             startInfo.ArgumentList.Add("--result");
             startInfo.ArgumentList.Add(resultPath);
 

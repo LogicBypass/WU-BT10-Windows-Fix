@@ -22,6 +22,18 @@ internal static class ProcessRunner
             ["/enable-device", instanceId],
             TimeSpan.FromSeconds(60));
 
+    internal static void DisableDevice(string instanceId) =>
+        Run(
+            System.IO.Path.Combine(Environment.SystemDirectory, "pnputil.exe"),
+            ["/disable-device", instanceId],
+            TimeSpan.FromSeconds(60));
+
+    internal static void ScanDevices() =>
+        Run(
+            System.IO.Path.Combine(Environment.SystemDirectory, "pnputil.exe"),
+            ["/scan-devices"],
+            TimeSpan.FromSeconds(60));
+
     internal static string Run(string fileName, IEnumerable<string> arguments, TimeSpan timeout, string? logDescription = null)
     {
         var info = new ProcessStartInfo(fileName)
