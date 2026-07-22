@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.2-diagnostic.2 - 2026-07-22
+
+- Added the BLE-MIDI-required initial characteristic read before enabling
+  notifications, matching Android's platform BLE-MIDI connection sequence.
+- Preserved the diagnostic.1 maintain-connection, retry, release, parser, and
+  WMS behavior so the characteristic read can be evaluated as one A/B variable.
+- Recorded the first attended hardware test and its intermittent service-query
+  `Unreachable` failure.
+
 ## 1.4.2-diagnostic.1 - 2026-07-22
 
 - Added bounded structured diagnostic sessions for BLE advertisement, GATT,

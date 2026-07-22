@@ -10,7 +10,7 @@
     <RootNamespace>WUBT10Fix</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
-    <Version>1.4.2-diagnostic.1</Version>
+    <Version>1.4.2-diagnostic.2</Version>
     <Authors>WU-BT10 Windows Fix contributors</Authors>
     <Company>WU-BT10 Windows Fix contributors</Company>
     <Product>WU-BT10 Windows Fix</Product>

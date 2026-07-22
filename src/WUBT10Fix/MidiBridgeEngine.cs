@@ -231,6 +231,27 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
                 "gatt-characteristic-selected",
                 ("uuid", characteristic.Uuid),
                 ("properties", characteristic.CharacteristicProperties));
+
+            // The BLE-MIDI specification requires the characteristic to be
+            // read before notifications are enabled. Android's platform
+            // BLE-MIDI service follows this sequence. Some peripherals may
+            // still complete the read with a non-success status, so record the
+            // outcome and continue to the notification step just as Android's
+            // callback-based implementation does.
+            try
+            {
+                var initialRead = await characteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
+                Trace(
+                    "gatt-characteristic-initial-read-completed",
+                    ("status", initialRead.Status),
+                    ("protocolError", initialRead.ProtocolError),
+                    ("byteCount", initialRead.Value?.Length));
+            }
+            catch (Exception ex)
+            {
+                Trace("gatt-characteristic-initial-read-failed", ("exception", ex.ToString()));
+            }
+
             characteristic.ValueChanged += OnMidiValueChanged;
 
             var subscription = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
