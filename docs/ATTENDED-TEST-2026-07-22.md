@@ -120,3 +120,26 @@ timed-out, stale, or error event, and the run left zero WU-BT10 virtual endpoint
 and zero application processes behind.
 
 Evidence file: `TestResults/lifecycle-generation-cycles.json`.
+
+## Rejected WMS App Virtual Device experiment
+
+The production branch also tested Microsoft's preferred app-owned virtual UMP
+device architecture with Windows MIDI Services App SDK `1.0.17-rc.4.25` and a
+.NET 10 diagnostic build. Endpoint creation itself was consistently fast (about
+127–301 ms), but teardown was not safe on the installed RC runtime:
+
+- `MidiSession.DisconnectEndpointConnection` blocked indefinitely.
+- `MidiSession.Dispose` also blocked indefinitely when explicit disconnect was
+  omitted.
+- Deferring all managed teardown to process exit still left the MIDI service
+  unresponsive to its own ping command.
+- Once poisoned, the RC service required an administrator-only forced service
+  process reset before it accepted another session.
+
+BLE was explicitly unsubscribed and released before every WMS teardown attempt,
+so this failure is isolated to the WMS App virtual-device transport. The
+experiment is rejected as a production default for this release. The proven
+WMS loopback transport remains in use, protected by the new single-instance
+lease and serialized lifecycle. App-owned endpoints should be reconsidered when
+a stable WMS SDK/runtime is available and passes endpoint-create, clean-exit,
+crash-exit, and service-ping regression tests.

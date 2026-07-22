@@ -403,11 +403,11 @@ internal sealed class MainForm : Form
             ["closingAfterMidiStop"] = _closingAfterMidiStop,
             ["closeReason"] = e.CloseReason
         });
-        if (_midiBridge.IsRunning && !_closingAfterMidiStop)
+        if (!_closingAfterMidiStop)
         {
             e.Cancel = true;
             _closingAfterMidiStop = true;
-            await _midiBridge.StopAsync();
+            await _midiBridge.DisposeAsync();
             Close();
             return;
         }

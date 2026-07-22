@@ -34,6 +34,7 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     private int _stopRequestCount;
     private int _packetCount;
     private int _messageCount;
+    private int _disposeState;
     private DateTimeOffset? _firstPacketAt;
     private DateTimeOffset? _lastPacketAt;
 
@@ -55,9 +56,11 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
     internal async Task StartAsync(CancellationToken cancellationToken = default)
     {
         Trace("start-requested", ("state", State), ("isRunning", IsRunning));
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
         await _lifecycle.WaitAsync(cancellationToken);
         try
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
             if (Volatile.Read(ref _stopRequestCount) > 0)
                 throw new InvalidOperationException("The MIDI bridge is still stopping. Try Connect again after it has stopped.");
 
@@ -764,7 +767,17 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await StopAsync();
-        _lifecycle.Dispose();
+        if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
+            return;
+
+        try
+        {
+            await StopAsync();
+        }
+        finally
+        {
+            _lifecycle.Dispose();
+            Volatile.Write(ref _disposeState, 2);
+        }
     }
 }
