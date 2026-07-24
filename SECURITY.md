@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-Only the latest release receives security fixes. Versions earlier than 1.4.0
-should not be used because their experimental Audio repair could disable system
-audio hardware and fail to restore it.
+Only the latest release receives security fixes. Versions earlier than 2.0
+should not be used because their experimental Audio repair mixed profile,
+device, and service mutations.
 
 ## Reporting a vulnerability
 
@@ -13,16 +13,17 @@ problem that could put users or their systems at risk.
 
 ## Privileged operation
 
-The graphical app runs without elevation for diagnosis, Audio settings, volume,
-and MIDI. The emergency action is hidden unless Windows reports an exact Intel
-Bluetooth Audio device as already disabled. It requires a separate confirmation
-with **No** as the default before UAC can be requested. The helper
-may run `pnputil /enable-device` for that exact matching device and verifies that
-it is no longer disabled.
+The graphical app runs without elevation for diagnosis, Audio/MIDI switching,
+volume enforcement, and MIDI forwarding. The advanced Intel compatibility
+transaction requires exact-one healthy Intel and WU-BT10 device preconditions,
+a separate confirmation with **No** as the default, and UAC. It may disable only
+that exact Intel Bluetooth Audio offload node, verifies the state, and persists
+the identity for later restoration. Restore uses UAC to enable and verify that
+same recorded node.
 
-The project contains no device-disable operation, Bluetooth profile-state
-mutation, audio-service restart, driver installer, service, scheduled task,
-startup entry, telemetry client, or updater.
+Normal switching contains no PnP disable/restart, Bluetooth profile-state
+mutation, pairing removal, audio-service restart, driver installer, service,
+scheduled task, startup entry, telemetry client, or updater.
 
 ## Release signing
 

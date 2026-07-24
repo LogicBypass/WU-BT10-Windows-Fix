@@ -1,87 +1,102 @@
-# WU-BT10 2.0 production hardware protocol
+# WU-BT10 2.1 hardware acceptance protocol
 
-Use this protocol for a release candidate on every supported Windows
-architecture and Bluetooth/audio-driver family available.
+Record the source commit, build hash, Windows build, Bluetooth driver, audio
+driver, Windows MIDI Services version, connection time, final state, and
+diagnostic session for every run. Keep full local device IDs out of public
+reports.
 
-## Evidence
+Casio notification tones:
 
-Record build hash, Windows build, Bluetooth driver, audio driver, Windows MIDI
-Services version, connection time, app state, and the latest correlated JSONL
-session. Do not include full device IDs in public reports.
-
-Casio connection sounds are useful physical evidence:
-
-- rising/falling piano melody: Bluetooth Audio connect/disconnect;
+- rising/falling piano melody: Audio connect/disconnect;
 - rising/falling vibraphone melody: BLE-MIDI connect/disconnect.
 
-The WU-BT10 light is supplementary evidence. This unit continued flashing
-during verified Windows MIDI traffic, although it became steady with Casio's
-Android app.
+The indicator is supplementary. This adapter previously exchanged working
+Windows MIDI traffic while it continued flashing.
 
-## A. Standard-user Audio
+## A. Startup and UI
 
-1. Connect WU-BT10 AUDIO in Windows.
-2. Confirm the app reports an active endpoint and its current volume.
-3. Run Test sound and confirm Windows completes targeted playback.
-4. Confirm the default Windows output and endpoint volume did not change.
-5. Disconnect and reconnect Audio three times, running Test sound each time.
+1. Begin with Audio and MIDI disconnected.
+2. Start the app.
+3. Confirm no connection notification tone occurs.
+4. Confirm no endpoint/transport changes state.
+5. Confirm separate Audio and MIDI sections show Connect.
+6. Close the app and confirm no temporary MIDI endpoint remains.
 
-If Windows reports Connected without playback and the app offers compatibility
-mode, continue with B. Do not run compatibility mode on a different or ambiguous
-device inventory.
+## B. Audio section
 
-## B. Compatibility-mode transaction
+1. For a first connection, put the piano in Audio pairing standby with
+   FUNCTION + C-sharp 1.
+2. Press **Connect Audio** once.
+3. If Windows shows the mandatory pairing prompt, press **Allow**; confirm the
+   app did not open Settings.
+4. Confirm rising piano melody.
+5. Verify exactly one active playback endpoint, Classic transport connected,
+   MIDI stopped, and volume at 20%.
+6. Play normal external Audio at a safe source level.
+7. Press **Disconnect Audio**.
+8. Confirm falling piano melody, endpoint inactive, and transport disconnected.
+9. Repeat five times; later connects must reuse pairing without another prompt.
 
-1. Review the confirmation and ensure **No** is the default.
-2. Enable compatibility mode and approve UAC.
-3. Confirm exactly one recorded Intel Bluetooth Audio node is
-   `CM_PROB_DISABLED`.
-4. Disconnect/reconnect WU-BT10 AUDIO in Windows and repeat A.
-5. Restart the app and Windows; confirm the mode is still recognized.
-6. Select Restore Intel default mode and approve UAC.
-7. Confirm Intel is `CM_PROB_NONE` and the compatibility record is removed.
-8. Re-enable compatibility mode only if the missing-endpoint failure is
-   reproduced and the exact-one preconditions still hold.
+If discovery returns no exact device or multiple exact devices, the app must
+fail without service mapping, pairing, or PnP changes. After pairing, an absent
+or ambiguous endpoint must also fail safely.
 
-## C. Bidirectional MIDI
+## C. MIDI section
 
-1. Disconnect Audio in Windows.
-2. Start MIDI and record the vibraphone connection tone.
-3. Play at least five notes; verify input count and the target MIDI application.
-4. Send channel voice and one safe SysEx message from the MIDI application;
-   verify output count and BLE write completion.
-5. Stop MIDI; verify the disconnection tone and BLE advertising within 45
-   seconds.
-6. Repeat five times with a five-second connected dwell.
+1. Press **Connect MIDI** while Audio is disconnected.
+2. Confirm rising vibraphone melody and bridge endpoint creation.
+3. Play notes and pedals; verify inbound count and the target app.
+4. Send Note On/Off, controller, Program Change, pitch bend, real-time, and a
+   safe SysEx message to the piano; verify outbound count.
+5. Press **Disconnect MIDI**.
+6. Confirm falling vibraphone melody, loopback removal, and advertisement within
+   20 seconds.
+7. Repeat five times with at least five seconds connected dwell.
 
-## D. Mode transition
+## D. Automatic Audio -> MIDI
 
-1. Connect Audio and complete Test sound.
-2. Press Connect MIDI while Audio is active; verify the app refuses and does not
-   acquire BLE.
-3. Disconnect Audio, connect MIDI, exchange traffic, then stop MIDI.
-4. Press Connect Audio in Windows, reconnect, and complete Test sound.
-5. Repeat three times.
+1. Connect Audio and verify 20%.
+2. Press **Connect MIDI** without manually disconnecting Audio.
+3. Verify BLE session preparation precedes Audio release.
+4. Confirm falling piano then rising vibraphone notification sequence.
+5. Verify Audio absent, MIDI connected, and bidirectional traffic.
+6. Repeat five times.
 
-## E. Recovery paths
+## E. Automatic MIDI -> Audio
 
-Run one connection for each path and verify later BLE advertising and Audio
-reconnect:
+1. Connect MIDI and exchange traffic.
+2. Press **Connect Audio** without manually disconnecting MIDI.
+3. Confirm falling vibraphone then rising piano notification sequence.
+4. Verify MIDI stopped/removed, advertisement observed before Audio request,
+   Audio active, and volume at 20%.
+5. Repeat five times.
 
-1. MIDI Disconnect button;
-2. close the app while MIDI is connected;
-3. piano power cycle with automatic MIDI recovery;
-4. Windows Bluetooth off/on;
+## F. Failure and recovery
+
+Verify a later normal cycle after each:
+
+1. close the app while MIDI is connected;
+2. force process termination, then restart;
+3. power-cycle the piano during MIDI automatic recovery;
+4. turn the Windows Bluetooth radio off/on;
 5. sleep/resume;
-6. forced process termination, then next-process stale-loopback recovery.
+6. attempt MIDI while Audio transport is connected but no endpoint exists;
+7. attempt Audio while WU-BT10 wireless is off;
+8. click both buttons rapidly during a transition.
+
+The app must never accept both modes active, leave a temporary endpoint after a
+clean Stop, remove pairing, or leave an Audio/Windows service disabled outside
+the explicit recorded compatibility mode.
 
 ## Stop conditions
 
-Stop immediately and preserve logs if:
+Stop and preserve logs if:
 
+- Audio and MIDI are simultaneously accepted active;
+- volume is accepted above 20.5%;
 - compatibility mode cannot verify the exact Intel node;
-- Intel cannot be restored after a requested rollback;
-- WU-BT10 does not advertise within 45 seconds after a representative Stop;
+- MIDI does not advertise within the bounded release check;
 - Windows MIDI Services stops responding;
-- pairing disappears without an explicit user removal; or
-- a process crash, unhandled UI exception, or stuck temporary endpoint occurs.
+- pairing disappears;
+- Explorer, the app, or a shell extension crashes;
+- a transition continues after the window was closed.

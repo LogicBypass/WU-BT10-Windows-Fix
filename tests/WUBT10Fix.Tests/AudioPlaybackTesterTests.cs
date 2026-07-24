@@ -6,7 +6,8 @@ public sealed class AudioPlaybackTesterTests
     public async Task SilentActivationRejectsNonAudioEndpointBeforeBluetoothControl()
     {
         var result = await AudioPlaybackTester.ActivateSilentlyPreservedEndpointAsync(
-            "BTHENUM\\not-an-audio-endpoint");
+            "BTHENUM\\not-an-audio-endpoint",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Contains("not a Windows audio endpoint", result.Message);

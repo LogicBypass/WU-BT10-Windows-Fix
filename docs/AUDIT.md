@@ -1,133 +1,114 @@
-# Architecture, history, and safety audit (2.0.0)
+# Architecture and safety audit
 
-Date: 2026-07-22
+Version: 2.1.0
+Updated: 2026-07-24
 
 ## Outcome
 
-The reliable design is exclusive Audio/MIDI ownership plus a finite BLE-MIDI
-lifecycle. On the audited Intel Smart Sound machine, reliable Audio additionally
-requires a persistent but reversible compatibility mode that disables only the
-Intel Bluetooth-audio offload node so Windows uses its standard A2DP path.
+The application uses exclusive Audio/MIDI ownership with explicit controls for
+both modes. Opening it performs read-only diagnosis only. User-requested
+Connect/Disconnect operations are serialized and each operation verifies the
+final Windows state.
 
-Normal diagnosis, playback testing, switching, and MIDI need no elevation. UAC
-is used only to enable or restore compatibility mode, or to recover an
-independently disabled Intel device.
+Normal switching is non-elevated. UAC is restricted to the optional Intel Audio
+compatibility transaction or recovery of an already-disabled exact Intel node.
 
-## Version evolution and lessons
+## Production architecture
 
-### 1.0–1.1: a repair that worked once but was too broad
+### Audio
 
-The first successful Audio repair toggled the WU-BT10 A2DP service mapping,
-temporarily disabled Intel offload, optionally restarted Audio Endpoint Builder,
-then re-enabled Intel. It proved that bypassing Intel allowed Windows to create
-a standard WU-BT10 playback endpoint.
+The app resolves exactly one preserved WU-BT10 MMDevice endpoint, follows its
+topology to the Bluetooth Audio kernel-streaming filter, and requests the
+driver's reconnect or disconnect property. It never treats request acceptance
+as completion. Connect requires:
 
-The implementation mixed several variables, automatically changed volume, and
-treated every nonzero `pnputil` exit as failed restoration. One observed exit 50
-said the device was already enabled, so the urgent failure report was false.
-Repeated service-mapping toggles also returned errors 87 and 1168.
+- an active WU-BT10 playback endpoint;
+- the Classic WU-BT10 AUDIO record connected;
+- endpoint volume no greater than 20.5%;
+- MIDI stopped.
 
-Microsoft documents that `BluetoothSetServiceState` installs or removes the
-mapped device driver. It is not a normal A2DP Connect API:
-[BluetoothSetServiceState](https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/nf-bluetoothapis-bluetoothsetservicestate).
+Disconnect requires both the endpoint inactive and Classic record disconnected.
 
-### 1.3: more recovery steps increased instability
+The driver property is narrower and better tested than the historical
+service-mapping and PnP reset sequences, but it is not a documented universal
+application-level Windows A2DP API. Unsupported topology, zero/multiple
+endpoints, or failed post-state checks stop without a broader fallback.
 
-Connect and repair paths repeated profile toggles, device restarts, Intel
-disable/enable, and service restarts. A failed sequence could leave Intel
-Bluetooth Audio disabled. MIDI used guessed/cached identity, rapid GATT retries,
-no robust ownership, and incomplete teardown.
+### MIDI
 
-The main lesson was transactional: a recovery action must have narrow
-preconditions, one purpose, authoritative post-state checks, and a guaranteed
-rollback. Command exit codes alone are not device state.
+The bridge discovers live advertisements, creates fresh GATT objects for each
+attempt, performs uncached discovery, follows the Android-observed initial-read
+ordering, enables notifications, and forwards MIDI in both directions.
 
-### 1.4 diagnostic series: isolate variables
+While the user explicitly leaves MIDI enabled, `GattSession.MaintainConnection`
+is true to support Audio handoff and link-loss recovery. Stop sets it false,
+unsubscribes, disposes GATT objects, closes WinMM, removes the temporary Windows
+MIDI Services loopback, and verifies that WU-BT10 advertises again.
 
-Disruptive Audio mutations were removed while BLE-MIDI was instrumented. Live
-advertisements replaced address arithmetic. GATT objects were reacquired after
-failures, disconnect events became observable, and structured correlation logs
-made connection/release timing measurable.
+### Mode coordinator
 
-Hardware A/B testing showed that the finite policy without persistent
-`MaintainConnection` ownership released predictably. The initial MIDI
-characteristic read was not required for sustained traffic. Five representative
-cycles with a five-second dwell all re-advertised after Stop.
+- Audio -> MIDI: prepare retained GATT session, release Audio, verify Audio
+  absent, then complete service discovery.
+- MIDI -> Audio: stop MIDI, confirm advertisement, connect Audio, verify 20%.
+- A failed Audio release aborts and cleans up MIDI.
+- Concurrent UI operations are rejected/serialized.
+- Closing the window cancels and waits for an active UI operation before MIDI
+  disposal.
 
-### 2.0: retain what is repeatable
+## Safety invariants
 
-MIDI now serializes lifecycle changes, rejects stale callbacks, owns only one
-bridge process, forwards both directions, removes its temporary loopback, and
-recovers from link loss.
+- Startup diagnosis makes no connection or mutation.
+- Diagnosis never changes endpoint volume.
+- Only explicit Audio Connect enforces 20%.
+- Audio and MIDI may not both be accepted as active.
+- Pairing is never removed.
+- `BluetoothSetServiceState` is not present in production source.
+- No Windows Audio/Bluetooth service restart occurs in normal or recovery code.
+- No WU-BT10 A2DP or Intel PnP restart occurs in normal switching.
+- No BLE address is guessed or derived from the Audio address.
+- No generated Audio signal is played.
+- The normal manifest is `asInvoker`.
+- Compatibility mode validates exact-one inventory, requires UAC, persists the
+  exact Intel identity, and verifies disable/restore state.
 
-Audio analysis separated three Windows layers:
+## Dependency audit
 
-1. the Classic Bluetooth record could say Connected;
-2. the WU-BT10 A2DP MEDIA node could be present, started, and `CM_PROB_NONE`;
-3. the MMDevice playback endpoint could still be absent.
+The production project has no third-party NuGet runtime package. It depends on
+the .NET Windows Desktop shared framework in source and embeds it only at
+self-contained publish time.
 
-PnP scan, exact A2DP restart, exact Intel restart, and Audio Endpoint Builder
-restart did not create playback. A guarded historical mapping rebuild created
-one active endpoint, but it disappeared on disconnect and did not return. That
-proved the one-shot repair was not a durable architecture.
+Test-only packages:
 
-With Intel offload left disabled, normal Windows Connect created the standard
-playback endpoint in seconds. Three Audio reconnect/playback cycles and the full
-Audio → MIDI → Audio transition passed. Restoring Intel reproduced the missing
-endpoint; enabling compatibility mode again restored repeatable behavior.
+- Microsoft.NET.Test.Sdk 18.8.1;
+- xunit.v3 3.2.2;
+- xunit.runner.visualstudio 3.1.5;
+- coverlet.collector 10.0.1.
 
-Therefore 2.0 removes the service-mapping reset from production and records the
-intentional Intel-disabled state as a reversible compatibility mode.
+Configured NuGet sources report no known vulnerable or deprecated packages.
 
-## Current safety invariants
+## Packaging status
 
-- Audio diagnosis is read-only.
-- Test sound targets WU-BT10 and does not change the default output or endpoint
-  volume.
-- Volume changes only after the explicit 20% button.
-- MIDI cannot start while the WU-BT10 playback endpoint is active.
-- Switching to Audio stops MIDI and releases BLE before opening Settings.
-- No profile service-state call, pairing removal, Windows service restart,
-  device restart, or guessed BLE address exists in production source.
-- Compatibility enable requires exactly one healthy Intel Bluetooth Audio node
-  and one healthy WU-BT10 A2DP node.
-- Compatibility restore validates the recorded `INTELAUDIO\` instance against
-  the current device inventory.
-- Intentional compatibility state persists in a per-user JSON record and is
-  cleared only after verified Intel restoration.
-- The normal application manifest is `asInvoker`.
+The earlier unsigned raw single-file executable is rejected after an Explorer
+crash on another PC. The custom executable ICO assignment was removed. No
+package is a release candidate until clean-PC shell and functional validation
+passes. See `PACKAGING-INCIDENT-2026-07-22.md`.
 
-## Windows and Casio constraints
+## Evidence and open questions
 
-Windows Classic Audio uses A2DP for stereo playback and creates the corresponding
-output endpoint; Windows 11 unifies endpoint presentation where HFP is also
-supported:
-[Bluetooth Classic audio](https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/bluetooth-classic-audio).
+The direct Audio property and coordinated handoff passed repeated cycles on the
+development Intel machine. The test suite covers parsers, leases, diagnostics,
+compatibility identity checks, and coordinator ordering/serialization.
 
-The supported Windows troubleshooting path is Settings-based reconnect,
-unpair/re-pair, driver update, or restart—not repeated service mapping mutation:
-[Microsoft Bluetooth connected/no sound guidance](https://support.microsoft.com/en-US/Windows/Hardware/Bluetooth/fix-bluetooth-connected-but-no-sound-issue-on-windows).
+Still required:
 
-Casio documents Audio and MIDI as separate connection modes and warns that
-simultaneous use may be unstable. The application therefore enforces exclusive
-mode transition rather than trying to maintain both links.
+- hardware execution of the new two-button UI;
+- additional Windows/Bluetooth/audio-driver families;
+- sleep/resume and Bluetooth radio-off recovery;
+- ARM64 hardware;
+- clean-PC Explorer/package testing;
+- Authenticode signing before public release;
+- re-evaluation of Windows MIDI Services app-owned virtual endpoints on a
+  stable runtime.
 
-## Windows MIDI Services decision
-
-Windows MIDI Services supplies the temporary loopback endpoint and supports
-64-bit x64 and ARM64 on the latest supported desktop Windows 11. Its current
-matrix still lists Bluetooth MIDI 1.0 transport as after the initial release, so
-the application must retain its own BLE transport:
-[minimum requirements](https://microsoft.github.io/MIDI/kb/minimum-requirements/),
-[compatibility matrix](https://microsoft.github.io/MIDI/kb/api-back-compat/).
-
-## Remaining limitations
-
-- Windows Settings remains necessary for supported Classic Audio
-  connect/disconnect.
-- Compatibility mode affects Intel Bluetooth audio offload system-wide, not
-  only WU-BT10; the UI discloses this before UAC and provides restoration.
-- ARM64 artifacts can be built on x64 but require an ARM64 machine for hardware
-  execution.
-- Public releases should be Authenticode signed; local artifacts remain
-  development builds until signing credentials are configured.
+The complete version history, rejected alternatives, and current doubts are in
+`DEVELOPMENT-REVIEW-2026-07-24.md`.

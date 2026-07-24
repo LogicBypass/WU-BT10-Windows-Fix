@@ -1,131 +1,149 @@
 # WU-BT10 Windows Fix
 
-An open-source Windows utility for Casio WU-BT10 Bluetooth Audio and
-bidirectional BLE-MIDI.
+An independent Windows utility for switching a Casio WU-BT10 between Bluetooth
+Audio and bidirectional BLE-MIDI.
 
-- Diagnoses the **Headphones (WU-BT10 AUDIO)** endpoint without changing it.
-- Plays a short test signal directly to WU-BT10 without changing the default
-  Windows output.
-- Offers a tested, persistent, and reversible Intel Audio compatibility mode
-  when Intel offload connects without creating playback.
-- Bridges WU-BT10 BLE-MIDI in both directions through a temporary Windows port
-  named **WU-BT10 MIDI Bridge**.
-- Detects BLE link loss, reacquires fresh GATT objects, and reconnects while the
-  bridge remains enabled.
+- Starts disconnected from the application's point of view: opening the app
+  performs read-only diagnosis and never initiates Audio or MIDI.
+- Presents separate **Audio** and **MIDI** sections with one Connect/Disconnect
+  control for each.
+- Enforces exclusive ownership. Connecting one mode cleanly releases the other
+  mode first and verifies the resulting Windows state.
+- Discovers and pairs WU-BT10 Audio inside the Connect Audio workflow, without
+  opening Settings, then connects the preserved endpoint and verifies 20%.
+- Bridges BLE-MIDI in both directions through a temporary Windows port named
+  **WU-BT10 MIDI Bridge**.
 
-![WU-BT10 Windows Fix interface](assets/screenshot.png)
+> This community project is not affiliated with or endorsed by Casio. WU-BT10
+> and Casio are trademarks of their respective owner.
 
-> This independent community project is not affiliated with or endorsed by
-> Casio. WU-BT10 and Casio are trademarks of their respective owner.
+## How to use it
+
+Pair **WU-BT10 AUDIO** with Windows once. Install
+[Windows MIDI Services Runtime and Tools](https://microsoft.github.io/MIDI/get-latest/)
+if MIDI is required.
+
+When the app opens, it only reports the existing state:
+
+- Press **Connect Audio** to use the piano as a Bluetooth speaker.
+- Press **Connect MIDI** to use the keyboard with a MIDI application.
+- Press the active mode's **Disconnect** button to release it.
+
+The first Audio connection requires the piano's Audio pairing standby
+(FUNCTION + C-sharp 1). Windows shows its mandatory **Allow** confirmation once;
+later connections reuse the pairing without Settings or another confirmation.
+
+If Audio is connected when **Connect MIDI** is pressed, the app prepares a BLE
+session first, disconnects only the Audio profile, and then completes MIDI
+service discovery. If MIDI is connected when **Connect Audio** is pressed, the
+app stops the bridge, waits for WU-BT10 to advertise again, and then connects
+Audio. This follows Casio's warning that simultaneous Audio and BLE-MIDI can
+make MIDI unstable.
+
+Select **WU-BT10 MIDI Bridge** as both input and output in the MIDI application.
+Keep this utility open while using MIDI. The utility does not need to remain
+open for Audio playback.
 
 ## Safety model
 
-Diagnosis, test sound, volume inspection, Audio/MIDI switching, and the MIDI
-bridge run as a standard user. Diagnosis never changes volume; **Set volume
-20%** is a separate explicit action.
+Normal diagnosis and switching run as the current standard user. No
+administrator access is requested for:
 
-Windows does not expose a supported public desktop API for reliably connecting
-or disconnecting a Classic Bluetooth A2DP client. The app therefore opens
-Windows Bluetooth settings for those user-controlled actions. It does not use
-`BluetoothSetServiceState` as a connection command, remove a pairing, restart
-Windows audio/Bluetooth services, or guess a MIDI address from the Audio MAC.
+- read-only diagnosis;
+- Audio connect/disconnect;
+- the 20% Audio endpoint limit; or
+- MIDI connect, forwarding, recovery, and disconnect.
 
-On the verified Intel Smart Sound failure, Windows reports the Bluetooth and
-A2DP devices as healthy and connected but creates no playback endpoint. The app
-then offers **Enable compatibility mode**. After confirmation and UAC, it:
+Normal switching does not remove pairing, toggle the A2DP service mapping,
+restart a Windows service, restart a PnP device, open Settings, or play a
+generated test signal.
 
-1. validates exactly one healthy Intel Bluetooth Audio offload device and one
-   healthy WU-BT10 A2DP device;
-2. disables only that Intel offload device;
-3. verifies `CM_PROB_DISABLED`; and
-4. records the exact device ID so later diagnosis treats the state as
-   intentional.
+Audio switching sends the reconnect/disconnect property understood by the
+Windows Bluetooth Audio kernel-streaming filter reached through the preserved
+MMDevice topology. This property is used narrowly because Windows does not
+publish a general Win32 A2DP Connect API for applications. The request is not
+treated as proof of success: the app requires exactly one preserved WU-BT10
+endpoint and verifies the endpoint and Classic Bluetooth transport after every
+operation. Unsupported or ambiguous systems fail without changing pairing or
+profile registration.
 
-Windows then uses its standard A2DP path. This setting affects Bluetooth audio
-offload system-wide and persists across restarts, but normal listening and mode
-switching require no administrator rights. **Restore Intel default mode** uses
-UAC to re-enable and verify the same recorded device. Ambiguous or changed
-device inventories are rejected without mutation.
+### Intel Audio compatibility mode
 
-## Audio use
+On the audited Intel Smart Sound machine, Intel Bluetooth-audio offload could
+report WU-BT10 connected without creating a playback endpoint. The optional,
+persistent compatibility mode:
 
-1. Pair **WU-BT10 AUDIO** in Windows Bluetooth settings.
-2. Click **Connect Audio in Windows**, then press **Connect** for WU-BT10 AUDIO.
-3. Return to the app. A green status means the playback endpoint is active.
-4. Press **Test sound** to send a short, quiet 48 kHz stereo signal directly to
-   WU-BT10.
-5. Use **Set volume 20%** only if you explicitly want that Windows endpoint
-   volume.
+1. requires exactly one healthy Intel Bluetooth Audio offload node and one
+   healthy WU-BT10 A2DP node;
+2. requires explicit confirmation and UAC;
+3. disables only that exact Intel offload node and verifies the result; and
+4. records the exact identity so it can be restored later.
 
-If Windows says Connected but the app reports that Intel offload created no
-playback output, enable the offered compatibility mode once. In Windows
-settings, press **Disconnect** and then **Connect**. The mode remains active
-until **Restore Intel default mode** is selected.
+This setting affects Bluetooth Audio offload system-wide and persists across
+restarts. **Restore Intel default** re-enables and verifies the recorded node.
+Normal Audio/MIDI switching remains non-elevated.
 
-The app does not need to stay open for Audio playback.
+## Implementation notes
 
-## MIDI use
+The MIDI bridge discovers live WU-BT10 BLE advertisements; it never derives a
+MIDI address from the Audio address. It performs uncached service and
+characteristic discovery, follows the initial-read ordering observed in
+Android's BLE-MIDI implementation, subscribes to notifications, and uses
+`GattSession.MaintainConnection` only while the user has explicitly enabled the
+MIDI bridge. Stop sets `MaintainConnection` to false, unsubscribes, disposes all
+GATT objects, closes WinMM, and removes the temporary loopback.
 
-1. Install [Windows MIDI Services Runtime and Tools](https://microsoft.github.io/MIDI/get-latest/).
-2. Disconnect **WU-BT10 AUDIO** in Windows. The app refuses to start MIDI while
-   its playback endpoint is active because Casio warns that simultaneous Audio
-   and MIDI can be unstable.
-3. Ensure no phone, tablet, browser, or other BLE-MIDI utility owns WU-BT10.
-4. Click **Connect WU-BT10 MIDI**.
-5. Select **WU-BT10 MIDI Bridge** as both input and output in the MIDI app.
-
-Keep WU-BT10 Windows Fix open while using MIDI. It forwards channel voice,
-system-common, real-time, and SysEx messages in both directions. Closing the app
-or pressing Disconnect unsubscribes notifications, closes WinMM input/output,
-removes the temporary loopback endpoint, and releases BLE ownership.
-
-### Switching modes
-
-- **Audio → MIDI:** disconnect WU-BT10 AUDIO in Windows, then press Connect MIDI.
-- **MIDI → Audio:** press Connect Audio in Windows. The app first stops and
-  releases MIDI, then opens Windows settings so Audio can be connected.
-
-The verified compatibility mode made repeated Audio reconnects and the complete
-Audio → MIDI → Audio transition reliable on the Intel test machine.
+Windows MIDI Services currently provides the loopback endpoint. Microsoft's
+native BLE-MIDI 1.0 transport remains listed as a post-initial-release feature,
+so this app retains its own BLE transport.
 
 ## Requirements
 
-- Latest supported 64-bit desktop Windows 11 for the integrated MIDI bridge
-  (x64 or ARM64), matching
-  [Windows MIDI Services requirements](https://microsoft.github.io/MIDI/kb/minimum-requirements/).
-- Windows MIDI Services Runtime and Tools.
-- A self-contained published build; no separate .NET installation is required.
+- 64-bit Windows 11 on x64 for the currently tested build.
+- Windows MIDI Services Runtime and Tools for MIDI.
+- Casio PX-S1100 with WU-BT10.
+- No separate .NET installation for the eventual self-contained build.
 
-Windows MIDI Services still lists Bluetooth MIDI 1.0 transport as after its
-initial release. This app supplies the BLE transport and uses Windows MIDI
-Services for the temporary loopback endpoint.
+ARM64 source support remains, but no ARM64 package is released until hardware
+execution passes on an ARM64 PC.
 
 ## Privacy and local state
 
 - No telemetry, account, updater, service, startup entry, or tray process.
-- Network access occurs only when the user opens an external download or
-  optional support link.
-- Rotating structured diagnostics:
+- Network access occurs only when the user opens the Windows MIDI Services
+  download link.
+- Structured diagnostics:
   `%LOCALAPPDATA%\WU-BT10-Fix\diagnostics` (2 MiB per file, 20 files maximum).
-  MIDI payload bytes are not logged.
 - Repair log: `%LOCALAPPDATA%\WU-BT10-Fix\repair.log`.
-- Compatibility-mode record:
-  `%LOCALAPPDATA%\WU-BT10-Fix\audio-compatibility-mode.json`. It contains only
-  the exact Intel PnP instance ID and activation timestamp.
+- Compatibility record:
+  `%LOCALAPPDATA%\WU-BT10-Fix\audio-compatibility-mode.json`.
+
+MIDI payload bytes are not written to diagnostics.
 
 ## Build and test
 
-Install the .NET 9 SDK, then run:
+Install the SDK selected by `global.json`, then run:
 
 ```powershell
 dotnet restore WUBT10Fix.slnx
-dotnet build WUBT10Fix.slnx -c Release --no-restore
+dotnet build WUBT10Fix.slnx -c Release --no-restore -warnaserror
 dotnet test WUBT10Fix.slnx -c Release --no-build
-dotnet publish src/WUBT10Fix/WUBT10Fix.csproj -c Release -r win-x64 --self-contained true
 ```
 
-Use `win-arm64` for Windows on ARM. See [docs/SIGNING.md](docs/SIGNING.md) for
-Authenticode release requirements.
+The project intentionally has no third-party production NuGet dependency. Test
+dependencies are checked for vulnerabilities and deprecation. See
+[docs/DEVELOPMENT-REVIEW-2026-07-24.md](docs/DEVELOPMENT-REVIEW-2026-07-24.md)
+for the version-by-version review and
+[docs/SIGNING.md](docs/SIGNING.md) for release requirements.
+
+## Packaging status
+
+The previous unsigned, custom-icon, 178 MiB raw single-file executable is
+rejected because its presence crashed Explorer on another PC. It is not a
+release candidate. The custom executable icon resource has been removed from
+the build while the in-app PNG remains. A new executable will be handed off
+only after Explorer enumeration, launch, signature/reputation behavior, and
+functional switching pass on a clean second PC.
 
 ## License
 

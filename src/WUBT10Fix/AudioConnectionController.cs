@@ -21,10 +21,22 @@ internal static class AudioConnectionController
             if (!RepairEngine.IsAudioEndpointActive())
             {
                 var endpointIds = RepairEngine.AudioEndpointIds();
+                if (endpointIds.Length == 0)
+                {
+                    var pairing = await AudioPairingService.EnsurePairedAsync(cancellationToken);
+                    if (!pairing.Success)
+                        return Trace(AudioSwitchResult.Failed(pairing.Message), "direct-connect-pairing-failed");
+
+                    endpointIds = await WaitForPlaybackEndpointAsync(cancellationToken);
+                }
+
                 if (endpointIds.Length != 1)
                 {
                     return Trace(
-                        AudioSwitchResult.Failed($"Expected one preserved WU-BT10 playback endpoint, but Windows returned {endpointIds.Length}. No Bluetooth change was made."),
+                        AudioSwitchResult.Failed(
+                            endpointIds.Length == 0
+                                ? "WU-BT10 AUDIO paired, but Windows did not create its playback endpoint within 30 seconds."
+                                : $"Windows returned {endpointIds.Length} WU-BT10 playback endpoints; exactly one is required. No connection change was made."),
                         "direct-connect-preserved-endpoint-ambiguous");
                 }
 
@@ -150,5 +162,29 @@ internal static class AudioConnectionController
             ["message"] = result.Message
         });
         return result;
+    }
+
+    private static async Task<string[]> WaitForPlaybackEndpointAsync(
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var endpointIds = RepairEngine.AudioEndpointIds();
+            if (endpointIds.Length > 0)
+            {
+                DiagnosticTrace.Write("audio-pairing", "playback-endpoint-created", new Dictionary<string, object?>
+                {
+                    ["endpointCount"] = endpointIds.Length
+                });
+                return endpointIds;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+        }
+
+        DiagnosticTrace.Write("audio-pairing", "playback-endpoint-timeout");
+        return [];
     }
 }

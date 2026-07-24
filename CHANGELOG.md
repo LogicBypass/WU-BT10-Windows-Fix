@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.1.0 - 2026-07-24
+
+- Replaced the overloaded one-button mode switch with separate Audio and MIDI
+  sections, each with an explicit Connect/Disconnect control.
+- Made startup diagnosis explicitly read-only; opening the app never initiates
+  Audio or MIDI.
+- Added a serialized connection coordinator with final cross-mode state checks.
+- Added first-time in-app WU-BT10 AUDIO discovery and standard Windows pairing.
+  The app resolves the exact Classic Bluetooth address, accepts only the exact
+  device name, and waits for one playback endpoint before connecting.
+- Added one bounded retry for the observed immediate generic Windows pairing
+  failure; authentication failures, cancellation, and delayed failures are not
+  retried.
+- Audio-to-MIDI switching now detects both an active playback endpoint and a
+  connected Classic Audio transport before it releases Audio.
+- MIDI-to-Audio switching stops MIDI, confirms restored advertising, and only
+  then connects Audio.
+- Added five transition/serialization tests and migrated the test stack from
+  deprecated xUnit v2 to xUnit v3.
+- Removed the custom executable icon assignment after the rejected build caused
+  Explorer crashes on another PC. The in-app PNG logo remains.
+- Reconciled the documentation with the direct driver-control architecture and
+  recorded the limits and doubts around each retained implementation choice.
+- Hardware-verified first-time pairing, Audio playback at 20%, Audio -> MIDI
+  with live input, and MIDI -> Audio with clean GATT/loopback teardown.
+- Reworked the main-screen guidance for end users: the header now describes the
+  restoration goal, the Windows MIDI Services install/restart link lives inside
+  the MIDI section, and the technical handoff paragraph is replaced by two
+  concise setup and automatic-switching steps.
+
 ## 2.0.0 - 2026-07-22
 
 - Selected the finite BLE lifecycle after controlled hardware A/B testing and

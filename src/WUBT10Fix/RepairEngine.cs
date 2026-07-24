@@ -384,6 +384,9 @@ internal static class RepairEngine
 
     internal static bool IsAudioEndpointActive() => EndpointReady();
 
+    internal static bool IsAudioConnectionPresent() =>
+        EndpointReady() || BluetoothNative.FindWuBt10AudioDevices().Any(device => device.Connected);
+
     internal static string[] ActiveAudioEndpointIds() =>
         RegisteredEndpointIds().Where(AudioEndpointNative.IsActive).ToArray();
 

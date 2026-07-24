@@ -30,7 +30,6 @@ supports GitHub Actions through OpenID Connect.
    - `AZURE_ARTIFACT_SIGNING_ENDPOINT`
    - `AZURE_SIGNING_ACCOUNT_NAME`
    - `AZURE_CERTIFICATE_PROFILE_NAME`
-   - `SUPPORT_URL` (optional)
 
 The release workflow uses:
 

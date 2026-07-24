@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, for example v1.1.0"
+        description: "Release version, for example v2.1.0"
         required: true
         type: string
 
@@ -51,7 +51,6 @@ jobs:
             --no-restore `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:SupportUrl="${{ vars.SUPPORT_URL }}" `
             -p:RepositoryUrl="${{ github.server_url }}/${{ github.repository }}" `
             -o "artifacts/${{ matrix.runtime }}"
           Rename-Item `

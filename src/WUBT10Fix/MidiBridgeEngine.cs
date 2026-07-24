@@ -314,12 +314,11 @@ internal sealed class MidiBridgeEngine : IAsyncDisposable
                 ("uuid", characteristic.Uuid),
                 ("properties", characteristic.CharacteristicProperties));
 
-            // The BLE-MIDI specification requires the characteristic to be
-            // read before notifications are enabled. Android's platform
-            // BLE-MIDI service follows this sequence. Some peripherals may
-            // still complete the read with a non-success status, so record the
-            // outcome and continue to the notification step just as Android's
-            // callback-based implementation does.
+            // Android's platform BLE-MIDI service reads the characteristic
+            // before enabling notifications. That ordering improved the
+            // observed WU-BT10 connection sequence, but it is retained as a
+            // tested interoperability measure rather than claimed as a
+            // BLE-MIDI specification requirement.
             try
             {
                 var initialRead = await characteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
