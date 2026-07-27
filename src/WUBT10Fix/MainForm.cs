@@ -82,6 +82,7 @@ internal sealed class MainForm : Form
         var header = new Panel
         {
             Dock = DockStyle.Top,
+            Width = ClientSize.Width,
             Height = 108,
             BackColor = Navy,
             Padding = new Padding(28, 16, 28, 14)
@@ -111,7 +112,32 @@ internal sealed class MainForm : Form
             AutoSize = true,
             Location = new Point(128, 64)
         };
-        header.Controls.AddRange([logo, title, subtitle]);
+
+        var supportOnceButton = BuildSupportButton(
+            "SupportOnceButton",
+            "Once $10+",
+            "Support once — $10 or more",
+            "Open secure one-time support page. You can choose any amount from $10.",
+            new Point(500, 20),
+            new Size(108, 34));
+        supportOnceButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportOnce);
+
+        var supportMonthlyButton = BuildSupportButton(
+            "SupportMonthlyButton",
+            "Monthly $5+",
+            "Support monthly — $5 or more",
+            "Open secure monthly support page. You can choose any amount from $5 per month.",
+            new Point(616, 20),
+            new Size(116, 34));
+        supportMonthlyButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportMonthly);
+
+        header.Controls.AddRange([
+            logo,
+            title,
+            subtitle,
+            supportOnceButton,
+            supportMonthlyButton
+        ]);
 
         var content = new Panel
         {
@@ -164,22 +190,6 @@ internal sealed class MainForm : Form
         _logButton.Size = new Size(112, 32);
         _logButton.Click += (_, _) => OpenLog();
 
-        var supportOnceButton = BuildSupportButton(
-            "SupportOnceButton",
-            "Support once — $10+",
-            "Open secure one-time support page. You can choose any amount from $10.",
-            new Point(344, 537),
-            new Size(180, 32));
-        supportOnceButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportOnce);
-
-        var supportMonthlyButton = BuildSupportButton(
-            "SupportMonthlyButton",
-            "Support monthly — $5+",
-            "Open secure monthly support page. You can choose any amount from $5 per month.",
-            new Point(532, 537),
-            new Size(196, 32));
-        supportMonthlyButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportMonthly);
-
         var privacyText = new Label
         {
             Text = $"No telemetry • Standard-user switching • Version {Application.ProductVersion.Split('+')[0]}",
@@ -195,8 +205,6 @@ internal sealed class MainForm : Form
             switchingTitle,
             switchingDetails,
             _logButton,
-            supportOnceButton,
-            supportMonthlyButton,
             privacyText
         ]);
         Controls.Add(content);
@@ -361,23 +369,28 @@ internal sealed class MainForm : Form
     private static Button BuildSupportButton(
         string name,
         string text,
+        string accessibleName,
         string accessibleDescription,
         Point location,
         Size size)
     {
-        return new Button
+        var button = new Button
         {
             Name = name,
-            AccessibleName = text,
+            AccessibleName = accessibleName,
             AccessibleDescription = accessibleDescription,
             Text = text,
             Font = new Font("Segoe UI Semibold", 9F),
-            BackColor = Color.White,
-            ForeColor = Navy,
+            BackColor = Green,
+            ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Location = location,
-            Size = size
+            Size = size,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Cursor = Cursors.Hand
         };
+        button.FlatAppearance.BorderSize = 0;
+        return button;
     }
 
     private async Task RunUiOperationAsync(Func<CancellationToken, Task> operation)

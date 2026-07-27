@@ -46,11 +46,10 @@ open for Audio playback.
 
 ## Optional support
 
-The two support buttons open Ko-fi in the user's default browser only after an
-explicit click. **Support once — $10+** allows any one-time amount from $10.
-**Support monthly — $5+** opens the $5-per-month tier and allows a higher
-monthly amount. Support is optional and does not unlock or restrict application
-features.
+The two green header buttons open Ko-fi in the user's default browser only after
+an explicit click. **Once $10+** allows any one-time amount from $10.
+**Monthly $5+** opens the $5-per-month tier and allows a higher monthly amount.
+Support is optional and does not unlock or restrict application features.
 
 ## Safety model
 
