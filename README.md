@@ -1,7 +1,7 @@
 # WU-BT10 Windows Fix
 
 [Project website](https://logicbypass.github.io/WU-BT10-Windows-Fix/) ·
-[Latest testing release](https://github.com/LogicBypass/WU-BT10-Windows-Fix/releases/latest) ·
+[Latest testing release](https://github.com/LogicBypass/WU-BT10-Windows-Fix/releases/tag/v2.1.0-rc.2) ·
 [Support development](https://ko-fi.com/wubt10fix)
 
 An independent Windows utility for switching a Casio WU-BT10 between Bluetooth
