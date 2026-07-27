@@ -5,7 +5,6 @@ namespace WUBT10Fix;
 
 internal sealed class MainForm : Form
 {
-    private const string WindowsMidiServicesUrl = "https://microsoft.github.io/MIDI/get-latest/";
     private static readonly Color Navy = Color.FromArgb(11, 31, 63);
     private static readonly Color Cyan = Color.FromArgb(0, 174, 214);
     private static readonly Color Green = Color.FromArgb(22, 137, 82);
@@ -154,7 +153,7 @@ internal sealed class MainForm : Form
             Size = new Size(696, 64),
             AccessibleName = "Windows MIDI Services setup and connection guidance"
         };
-        switchingDetails.LinkClicked += (_, _) => OpenUrl(WindowsMidiServicesUrl);
+        switchingDetails.LinkClicked += (_, _) => OpenUrl(ExternalLinks.WindowsMidiServices);
 
         _logButton.Name = "DiagnosticsButton";
         _logButton.AccessibleName = "Open diagnostics";
@@ -164,6 +163,22 @@ internal sealed class MainForm : Form
         _logButton.Location = new Point(32, 537);
         _logButton.Size = new Size(112, 32);
         _logButton.Click += (_, _) => OpenLog();
+
+        var supportOnceButton = BuildSupportButton(
+            "SupportOnceButton",
+            "Support once — $10+",
+            "Open secure one-time support page. You can choose any amount from $10.",
+            new Point(344, 537),
+            new Size(180, 32));
+        supportOnceButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportOnce);
+
+        var supportMonthlyButton = BuildSupportButton(
+            "SupportMonthlyButton",
+            "Support monthly — $5+",
+            "Open secure monthly support page. You can choose any amount from $5 per month.",
+            new Point(532, 537),
+            new Size(196, 32));
+        supportMonthlyButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportMonthly);
 
         var privacyText = new Label
         {
@@ -180,6 +195,8 @@ internal sealed class MainForm : Form
             switchingTitle,
             switchingDetails,
             _logButton,
+            supportOnceButton,
+            supportMonthlyButton,
             privacyText
         ]);
         Controls.Add(content);
@@ -283,7 +300,7 @@ internal sealed class MainForm : Form
             Size = new Size(598, 22),
             AccessibleName = "Install Windows MIDI Services and restart Windows before connecting MIDI"
         };
-        requirements.LinkClicked += (_, _) => OpenUrl(WindowsMidiServicesUrl);
+        requirements.LinkClicked += (_, _) => OpenUrl(ExternalLinks.WindowsMidiServices);
 
         ConfigureModeButton(_midiButton, "MidiConnectButton", "Connect MIDI", new Point(70, 128));
         _midiButton.Click += async (_, _) => await RunUiOperationAsync(HandleMidiButtonAsync);
@@ -339,6 +356,28 @@ internal sealed class MainForm : Form
         button.FlatAppearance.BorderSize = 0;
         button.Location = location;
         button.Size = new Size(210, 40);
+    }
+
+    private static Button BuildSupportButton(
+        string name,
+        string text,
+        string accessibleDescription,
+        Point location,
+        Size size)
+    {
+        return new Button
+        {
+            Name = name,
+            AccessibleName = text,
+            AccessibleDescription = accessibleDescription,
+            Text = text,
+            Font = new Font("Segoe UI Semibold", 9F),
+            BackColor = Color.White,
+            ForeColor = Navy,
+            FlatStyle = FlatStyle.Flat,
+            Location = location,
+            Size = size
+        };
     }
 
     private async Task RunUiOperationAsync(Func<CancellationToken, Task> operation)
@@ -750,14 +789,7 @@ internal sealed class MainForm : Form
 
     private static void OpenUrl(string url)
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            RepairLog.Write("Could not open URL: " + ex);
-        }
+        _ = ExternalLinks.TryOpen(url);
     }
 
     private static void OpenLog()

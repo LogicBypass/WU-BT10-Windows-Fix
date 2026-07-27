@@ -29,6 +29,9 @@
   restoration goal, the Windows MIDI Services install/restart link lives inside
   the MIDI section, and the technical handoff paragraph is replaced by two
   concise setup and automatic-switching steps.
+- Added adjacent, optional one-time ($10+) and monthly ($5+) Ko-fi buttons.
+  They open only after a click in the default browser, and an exact HTTPS
+  allowlist prevents altered destinations from launching.
 
 ## 2.0.0 - 2026-07-22
 

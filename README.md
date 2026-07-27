@@ -44,6 +44,14 @@ Select **WU-BT10 MIDI Bridge** as both input and output in the MIDI application.
 Keep this utility open while using MIDI. The utility does not need to remain
 open for Audio playback.
 
+## Optional support
+
+The two support buttons open Ko-fi in the user's default browser only after an
+explicit click. **Support once — $10+** allows any one-time amount from $10.
+**Support monthly — $5+** opens the $5-per-month tier and allows a higher
+monthly amount. Support is optional and does not unlock or restrict application
+features.
+
 ## Safety model
 
 Normal diagnosis and switching run as the current standard user. No
@@ -110,8 +118,8 @@ execution passes on an ARM64 PC.
 ## Privacy and local state
 
 - No telemetry, account, updater, service, startup entry, or tray process.
-- Network access occurs only when the user opens the Windows MIDI Services
-  download link.
+- Network access occurs only when the user explicitly opens the Windows MIDI
+  Services download link or either Ko-fi support page.
 - Structured diagnostics:
   `%LOCALAPPDATA%\WU-BT10-Fix\diagnostics` (2 MiB per file, 20 files maximum).
 - Repair log: `%LOCALAPPDATA%\WU-BT10-Fix\repair.log`.
