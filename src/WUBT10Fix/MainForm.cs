@@ -118,8 +118,8 @@ internal sealed class MainForm : Form
             "Once $10+",
             "Support once — $10 or more",
             "Open secure one-time support page. You can choose any amount from $10.",
-            new Point(500, 20),
-            new Size(108, 34));
+            new Point(556, 14),
+            new Size(176, 34));
         supportOnceButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportOnce);
 
         var supportMonthlyButton = BuildSupportButton(
@@ -127,8 +127,8 @@ internal sealed class MainForm : Form
             "Monthly $5+",
             "Support monthly — $5 or more",
             "Open secure monthly support page. You can choose any amount from $5 per month.",
-            new Point(616, 20),
-            new Size(116, 34));
+            new Point(556, 58),
+            new Size(176, 34));
         supportMonthlyButton.Click += (_, _) => OpenUrl(ExternalLinks.SupportMonthly);
 
         header.Controls.AddRange([
