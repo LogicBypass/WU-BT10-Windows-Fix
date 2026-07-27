@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1.0-rc.2 - 2026-07-27
+
+- Restored the executable icon using a reproducible six-frame Windows ICO with
+  16, 24, 32, 48, 64, and 256 pixel 32-bit uncompressed DIB resources.
+- Added automated shell-icon extraction, Explorer metadata, copy/rename/delete,
+  read-only diagnosis, and packaged GUI open/close validation.
+- Added a responsive GitHub Pages landing page with direct executable and ZIP
+  release links, project documentation, supported-model information, and
+  optional Ko-fi support.
+- Documented support for AP-300, AP-550, AP-750, AP-S190, AP-S200, AP-S450,
+  CDP-S360, CT-S1-76, CT-S1000V, CT-S1, CT-S400, CT-S410, CT-S500, LK-S450,
+  PX-S1100, PX-S3100, PX-S5000, PX-S6000, and PX-S7000.
+- Redacted hardware addresses from public test evidence and retained neutral
+  address-format coverage in unit tests.
+- Restricted automated production releases to configured Authenticode signing;
+  the separately published rc.2 package remains an explicitly unsigned testing
+  release.
+
 ## 2.1.0 - 2026-07-24
 
 - Replaced the overloaded one-button mode switch with separate Audio and MIDI

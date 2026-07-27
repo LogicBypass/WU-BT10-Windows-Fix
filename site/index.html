@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1f3f">
+  <meta name="description" content="Restore Casio WU-BT10 Bluetooth Audio and bidirectional MIDI capabilities on Windows.">
+  <meta property="og:title" content="WU-BT10 Windows Fix">
+  <meta property="og:description" content="Reliable, explicit switching between Casio WU-BT10 Audio and MIDI on Windows.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://logicbypass.github.io/WU-BT10-Windows-Fix/">
+  <meta property="og:image" content="https://logicbypass.github.io/WU-BT10-Windows-Fix/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="WU-BT10 Windows Fix">
+  <meta name="twitter:description" content="Restore Casio WU-BT10 Audio and MIDI capabilities on Windows.">
+  <meta name="twitter:image" content="https://logicbypass.github.io/WU-BT10-Windows-Fix/assets/og.png">
+  <title>WU-BT10 Windows Fix</title>
+  <link rel="icon" href="assets/app-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="WU-BT10 Windows Fix home">
+      <img src="assets/app-icon.png" alt="" width="48" height="48">
+      <span>WU-BT10 Windows Fix</span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#how-it-works">How it works</a>
+      <a href="#requirements">Requirements</a>
+      <a href="https://github.com/LogicBypass/WU-BT10-Windows-Fix">Source</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow">Supported Casio instruments · WU-BT10 · Windows 11</p>
+        <h1>Audio and MIDI.<br><span>One reliable switch.</span></h1>
+        <p class="lead">
+          Restore the missing Casio Bluetooth capabilities on Windows and move
+          cleanly between speaker playback and bidirectional BLE-MIDI.
+        </p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/LogicBypass/WU-BT10-Windows-Fix/releases/latest/download/WU-BT10-Windows-Fix-v2.1.0-rc.2-win-x64.exe">Download for Windows</a>
+          <a class="button button-secondary" href="https://github.com/LogicBypass/WU-BT10-Windows-Fix">View source</a>
+        </div>
+        <ul class="trust-list" aria-label="Project qualities">
+          <li>No telemetry</li>
+          <li>Standard-user switching</li>
+          <li>Open source</li>
+        </ul>
+      </div>
+
+      <div class="product-card" aria-label="Application interface preview">
+        <div class="window-bar">
+          <span>WU-BT10 Windows Fix</span>
+          <span aria-hidden="true">— □ ×</span>
+        </div>
+        <div class="app-header">
+          <img src="assets/app-icon.png" alt="" width="64" height="64">
+          <div>
+            <strong>WU-BT10 Audio / MIDI</strong>
+            <span>Restore missing Casio capabilities on Windows.</span>
+          </div>
+        </div>
+        <div class="mode-card">
+          <span class="mode-label">AUDIO</span>
+          <div class="status"><i class="status-dot green"></i><strong>WU-BT10 AUDIO is ready</strong></div>
+          <p>Connect the preserved playback endpoint and verify the 20% safety limit.</p>
+          <span class="mock-button">Connect Audio</span>
+        </div>
+        <div class="mode-card">
+          <span class="mode-label">MIDI</span>
+          <div class="status"><i class="status-dot amber"></i><strong>WU-BT10 MIDI is disconnected</strong></div>
+          <p>Create the temporary Windows MIDI port and open the live BLE-MIDI service.</p>
+          <span class="mock-button">Connect MIDI</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how-it-works">
+      <div class="section-heading">
+        <p class="eyebrow">Designed around the hardware</p>
+        <h2>Two modes, one coordinated connection</h2>
+        <p>The app checks the current state, releases the active mode correctly, and verifies the new connection before reporting success.</p>
+      </div>
+      <div class="feature-grid">
+        <article>
+          <span class="feature-number">01</span>
+          <h3>Safe Audio</h3>
+          <p>Connects the preserved Windows playback endpoint without opening Settings, changing the default output, or playing a test tone.</p>
+        </article>
+        <article>
+          <span class="feature-number">02</span>
+          <h3>Live MIDI</h3>
+          <p>Bridges bidirectional BLE-MIDI through a temporary Windows MIDI Services port with automatic link-loss recovery.</p>
+        </article>
+        <article>
+          <span class="feature-number">03</span>
+          <h3>Clean handoff</h3>
+          <p>Switching modes releases the previous Bluetooth profile and verifies that WU-BT10 is available before continuing.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="split-section" id="requirements">
+      <div>
+        <p class="eyebrow">Before you connect</p>
+        <h2>Simple requirements</h2>
+      </div>
+      <ol class="requirements">
+        <li><span>1</span><div><strong>Windows 11 x64</strong><p>The current release candidate is hardware-tested on x64.</p></div></li>
+        <li><span>2</span><div><strong>Windows MIDI Services</strong><p>Install the runtime and restart Windows before using MIDI.</p></div></li>
+        <li><span>3</span><div><strong>A supported Casio model with WU-BT10</strong><p>Audio pairing is confirmed once by Windows; later switching is handled by the app.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="models-section" aria-labelledby="models-title">
+      <div class="section-heading">
+        <p class="eyebrow">Supported Casio models</p>
+        <h2 id="models-title">One connection tool across the current range</h2>
+        <p>WU-BT10 Audio and MIDI switching is supported for the following Casio models:</p>
+      </div>
+      <ul class="model-list" aria-label="Supported Casio models">
+        <li>AP-300</li>
+        <li>AP-550</li>
+        <li>AP-750</li>
+        <li>AP-S190</li>
+        <li>AP-S200</li>
+        <li>AP-S450</li>
+        <li>CDP-S360</li>
+        <li>CT-S1-76</li>
+        <li>CT-S1000V</li>
+        <li>CT-S1</li>
+        <li>CT-S400</li>
+        <li>CT-S410</li>
+        <li>CT-S500</li>
+        <li>LK-S450</li>
+        <li>PX-S1100</li>
+        <li>PX-S3100</li>
+        <li>PX-S5000</li>
+        <li>PX-S6000</li>
+        <li>PX-S7000</li>
+      </ul>
+    </section>
+
+    <section class="release-card" id="release-status">
+      <div>
+        <p class="eyebrow">Release status</p>
+        <h2>Public testing comes before production</h2>
+        <p>
+          Version 2.1 is a hardware-verified release candidate. The source,
+          audits, and test protocol are public; a production download will be
+          published only after signing and clean multi-PC validation.
+        </p>
+      </div>
+      <div class="release-actions">
+        <span class="status-badge">v2.1.0-rc.2</span>
+        <a class="button button-primary" href="https://github.com/LogicBypass/WU-BT10-Windows-Fix/releases/latest/download/WU-BT10-Windows-Fix-v2.1.0-rc.2-win-x64.zip">Download ZIP</a>
+        <a class="text-link" href="https://github.com/LogicBypass/WU-BT10-Windows-Fix/blob/main/docs/HARDWARE-TEST-PROTOCOL.md">Read the test protocol →</a>
+      </div>
+    </section>
+
+    <section class="support-section">
+      <div>
+        <p class="eyebrow">Optional support</p>
+        <h2>Help fund compatibility testing</h2>
+        <p>The application remains fully available to everyone. Support helps cover additional Windows and hardware testing.</p>
+      </div>
+      <div class="support-actions">
+        <a class="button button-support" href="https://ko-fi.com/wubt10fix">Support once · $10+</a>
+        <a class="button button-support-outline" href="https://ko-fi.com/wubt10fix/tiers">Monthly · $5+</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Independent community project. Not affiliated with or endorsed by Casio.</p>
+    <div>
+      <a href="https://github.com/LogicBypass/WU-BT10-Windows-Fix/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/LogicBypass/WU-BT10-Windows-Fix/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/LogicBypass/WU-BT10-Windows-Fix/issues">Issues</a>
+    </div>
+  </footer>
+</body>
+</html>

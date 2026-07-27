@@ -287,7 +287,7 @@ Sensing, Program Change, and longer SysEx.
   - live UI Connect created the expected bridge endpoints and live UI
     Disconnect removed them and returned to Connect.
 - Audio hardware:
-  - exact unpaired device address `[redacted device address]` resolved without Settings;
+  - exact unpaired device address resolved without Settings (address redacted);
   - Windows pairing completed and created exactly one playback endpoint;
   - real external Audio played through the piano;
   - the endpoint and Classic transport were active at a verified 20%;

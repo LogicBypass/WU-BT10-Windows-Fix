@@ -1,7 +1,15 @@
 # WU-BT10 Windows Fix
 
+[Project website](https://logicbypass.github.io/WU-BT10-Windows-Fix/) ·
+[Latest testing release](https://github.com/LogicBypass/WU-BT10-Windows-Fix/releases/latest) ·
+[Support development](https://ko-fi.com/wubt10fix)
+
 An independent Windows utility for switching a Casio WU-BT10 between Bluetooth
 Audio and bidirectional BLE-MIDI.
+
+**Supported Casio models:** AP-300, AP-550, AP-750, AP-S190, AP-S200, AP-S450,
+CDP-S360, CT-S1-76, CT-S1000V, CT-S1, CT-S400, CT-S410, CT-S500, LK-S450,
+PX-S1100, PX-S3100, PX-S5000, PX-S6000, and PX-S7000.
 
 - Starts disconnected from the application's point of view: opening the app
   performs read-only diagnosis and never initiates Audio or MIDI.
@@ -143,14 +151,18 @@ dependencies are checked for vulnerabilities and deprecation. See
 for the version-by-version review and
 [docs/SIGNING.md](docs/SIGNING.md) for release requirements.
 
-## Packaging status
+## Download and packaging status
 
-The previous unsigned, custom-icon, 178 MiB raw single-file executable is
-rejected because its presence crashed Explorer on another PC. It is not a
-release candidate. The custom executable icon resource has been removed from
-the build while the in-app PNG remains. A new executable will be handed off
-only after Explorer enumeration, launch, signature/reputation behavior, and
-functional switching pass on a clean second PC.
+The release candidate is distributed as a self-contained x64 executable and a
+recommended ZIP transport package. It does not require a separate .NET
+installation. The executable is currently unsigned, so Windows may show an
+Unknown Publisher or SmartScreen warning. Do not run the unsigned executable
+directly from removable USB storage; copy the ZIP to a fixed local drive and
+extract it first.
+
+The executable icon is built as a validated, multi-resolution, uncompressed
+32-bit Windows ICO resource. Production release remains gated on trusted
+signing and clean multi-PC validation.
 
 ## License
 
