@@ -58,11 +58,33 @@ signature remains the proper production solution.
 
 ## Current mitigation
 
-- The custom ICO is no longer assigned or tracked as an executable resource.
-- The in-app PNG logo remains an embedded managed resource.
+- The rejected PNG-compressed ICO is no longer used.
+- rc.2 restores the executable icon from the in-app PNG as a reproducible,
+  validated six-frame ICO. It contains 16, 24, 32, 48, 64, and 256 pixel
+  32-bit alpha DIB frames; no frame is PNG-compressed.
 - Compression is not enabled.
-- No candidate is labeled a release until Explorer enumeration is tested on a
-  clean second PC.
+- No candidate is labeled production-ready until Explorer enumeration is tested
+  on a clean second PC.
+
+## v2.1.0-rc.2 icon and package validation
+
+The restored-icon x64 self-contained single-file candidate passed on the
+development PC:
+
+- structural validation of all six ICO directory entries and DIB headers;
+- decoder validation of all six exact image sizes;
+- 100 associated-icon extraction and bitmap-decode cycles;
+- 200 small/large Windows Shell icon extraction cycles;
+- Explorer namespace metadata enumeration;
+- standard-user copy, rename, delete, read-only diagnosis, GUI open, diagnosis,
+  and normal close from a copied path;
+- all 59 Release tests; and
+- a current Microsoft Defender custom scan with no threats.
+
+This confirms that the new icon is structurally valid and locally shell-safe.
+It does not change the earlier root cause: an unsigned process launched from
+USB can still be blocked by the configured Defender ASR rule. ZIP transport,
+local extraction, and eventual Authenticode signing remain required.
 
 ## v2.1.0 x64 multi-PC test candidate
 
