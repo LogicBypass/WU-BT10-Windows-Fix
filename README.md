@@ -28,7 +28,7 @@ PX-S1100, PX-S3100, PX-S5000, PX-S6000, and PX-S7000.
 ## How to use it
 
 Pair **WU-BT10 AUDIO** with Windows once. Install
-[Windows MIDI Services Runtime and Tools](https://microsoft.github.io/MIDI/get-latest/)
+[Windows MIDI Services Runtime and Tools](https://microsoft.github.io/MIDI/)
 if MIDI is required.
 
 When the app opens, it only reports the existing state:

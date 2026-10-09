@@ -4,7 +4,7 @@ namespace WUBT10Fix;
 
 internal static class ExternalLinks
 {
-    internal const string WindowsMidiServices = "https://microsoft.github.io/MIDI/get-latest/";
+    internal const string WindowsMidiServices = "https://microsoft.github.io/MIDI/";
     internal const string SupportOnce = "https://ko-fi.com/wubt10fix";
     internal const string SupportMonthly = "https://ko-fi.com/wubt10fix/tiers";
 
