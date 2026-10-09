@@ -4,8 +4,8 @@ namespace WUBT10Fix;
 
 internal sealed class WindowsMidiLoopback : IDisposable
 {
-    internal const string PortName = "WU-BT10 MIDI Bridge";
-    private const string AppPortName = "WU-BT10 MIDI Bridge (App)";
+    internal const string PortName = "'WU-BT10 MIDI Bridge'";
+    private const string AppPortName = "'WU-BT10 MIDI Bridge (App)'";
     private const string AssociationId = "{F310E87A-6AFE-4B95-A108-546038EB8449}";
     private bool _created;
 
@@ -41,7 +41,7 @@ internal sealed class WindowsMidiLoopback : IDisposable
         DiagnosticTrace.Write("wms", "loopback-create-command-started", ToolDetails(midiTool));
         var output = ProcessRunner.Run(
             midiTool,
-            ["loopback", "create", "--name-a", AppPortName, "--name-b", PortName, "--unique-identifier", "WUBT10MidiBridge", "--association-id", AssociationId],
+            ["loopback", "create", "--name-a", AppPortName, "--name-b", PortName, "--unique-identifier", "WUBT10MidiBridge"],
             TimeSpan.FromSeconds(15));
         DiagnosticTrace.Write("wms", "loopback-create-command-completed", new Dictionary<string, object?>
         {
@@ -80,7 +80,7 @@ internal sealed class WindowsMidiLoopback : IDisposable
     private static string FindMidiTool()
     {
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        var expected = Path.Combine(programFiles, "Windows MIDI Services", "Tools", "Console", "midi.exe");
+        var expected = Path.Combine(programFiles, "Windows MIDI Services", "Tools", "midi.exe");
         if (File.Exists(expected))
             return expected;
         throw new FileNotFoundException("Windows MIDI Services Runtime and Tools are required for the integrated MIDI bridge.", expected);
@@ -100,7 +100,7 @@ internal sealed class WindowsMidiLoopback : IDisposable
             DiagnosticTrace.Write("wms", "loopback-remove-command-started", ToolDetails(midiTool));
             var output = ProcessRunner.Run(
                 midiTool,
-                ["loopback", "remove", "--association-id", AssociationId],
+                ["loopback", "remove"],
                 TimeSpan.FromSeconds(10));
             DiagnosticTrace.Write("wms", "loopback-remove-command-completed", new Dictionary<string, object?>
             {
