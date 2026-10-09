@@ -80,7 +80,7 @@ internal sealed class WindowsMidiLoopback : IDisposable
     private static string FindMidiTool()
     {
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        var expected = Path.Combine(programFiles, "Windows MIDI Services", "Tools", "Console", "midi.exe");
+        var expected = Path.Combine(programFiles, "Windows MIDI Services", "Tools", "midi.exe");
         if (File.Exists(expected))
             return expected;
         throw new FileNotFoundException("Windows MIDI Services Runtime and Tools are required for the integrated MIDI bridge.", expected);
